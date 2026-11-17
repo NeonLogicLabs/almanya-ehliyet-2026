@@ -772,6 +772,7 @@ function buildKaynakNotuHtml(q) {
   return `
     <div style="margin:10px 0;padding:9px 12px;border-radius:9px;border:1px solid ${renk};background:rgba(148,163,184,0.06);font-size:12.5px;line-height:1.5;">
       <div style="color:${renk};font-weight:700;">${ikon} ${esc(k.not)}${esc(puan)}${kaynak}</div>
+      ${k.uyari ? `<div style="color:var(--gold);font-weight:700;margin-top:3px;">⚠️ ${esc(k.uyari)}</div>` : ''}
       <div style="color:var(--muted);margin-top:3px;">ℹ️ İşaretli cevap resmi değildir: DIHK yalnız soruları yayımlar, cevap anahtarı yayımlamaz.</div>
     </div>
   `;
