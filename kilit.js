@@ -16,7 +16,7 @@
 (function () {
   'use strict';
 
-  const SURUM = '20';
+  const SURUM = '23';
   const IDB_AD = 'ehliyet-kilit';
   const IDB_DEPO = 'anahtar';
   const IDB_ANAHTAR = 'k';
@@ -113,19 +113,20 @@
       kap.innerHTML = `
         <style>
           #kilit-ekrani { position: fixed; inset: 0; z-index: 99999; display: grid; place-items: center;
-            padding: 16px; background: #080c16; color: #e2e8f0;
-            font-family: system-ui, -apple-system, "Segoe UI", sans-serif; }
-          #kilit-ekrani form { width: 100%; max-width: 360px; background: #111827; border: 1px solid #1f2a3d;
-            border-radius: 16px; padding: 28px 22px; display: flex; flex-direction: column; gap: 14px; text-align: center; }
-          #kilit-ekrani h1 { font-size: 20px; margin: 0; }
-          #kilit-ekrani p { margin: 0; font-size: 13px; color: #94a3b8; line-height: 1.5; }
-          #kilit-ekrani input { width: 100%; padding: 13px 14px; border-radius: 10px; border: 1px solid #334155;
-            background: #0b1220; color: #fff; font-size: 16px; box-sizing: border-box; }
-          #kilit-ekrani input:focus { outline: 2px solid #0ea5e9; border-color: transparent; }
-          #kilit-ekrani button { padding: 13px; border: 0; border-radius: 10px; background: #0284c7; color: #fff;
-            font-size: 15px; font-weight: 700; cursor: pointer; }
+            padding: 16px; background: var(--zemin, none), var(--bg, #0b1020); color: var(--text, #eef2fb);
+            font-family: var(--f-metin, system-ui, -apple-system, "Segoe UI", sans-serif); }
+          #kilit-ekrani form { width: 100%; max-width: 360px; background: var(--card, #151c33); border: 1px solid var(--hair, #2a3350);
+            box-shadow: 0 0 0 5px var(--shell, transparent), 0 0 0 6px var(--border, transparent), inset 0 1px 1px var(--hilite, transparent), var(--golge, none);
+            border-radius: 24px; padding: 28px 22px; display: flex; flex-direction: column; gap: 14px; text-align: center; }
+          #kilit-ekrani h1 { font-size: 20px; font-weight: 600; letter-spacing: -0.02em; margin: 0; }
+          #kilit-ekrani p { margin: 0; font-size: 13px; color: var(--muted, #94a0bb); line-height: 1.5; }
+          #kilit-ekrani input { width: 100%; padding: 13px 16px; border-radius: 14px; border: 1px solid var(--border-light, #334155);
+            background: var(--input-bg, #0b1220); color: var(--text, #fff); font-size: 16px; box-sizing: border-box; }
+          #kilit-ekrani input:focus { outline: 3px solid var(--primary, #7c9bff); border-color: transparent; }
+          #kilit-ekrani button { padding: 13px; min-height: 50px; border: 0; border-radius: 999px; background: var(--cta, #fff); color: var(--cta-ink, #0b1020);
+            font-size: 15px; font-weight: 600; cursor: pointer; }
           #kilit-ekrani button:disabled { opacity: .6; cursor: wait; }
-          #kilit-ekrani .hata { color: #fca5a5; font-size: 13px; font-weight: 600; min-height: 1em; }
+          #kilit-ekrani .hata { color: var(--red-ink, #fca5a5); font-size: 13px; font-weight: 600; min-height: 1em; }
         </style>
         <form autocomplete="on">
           <div style="font-size:40px;">🔐</div>

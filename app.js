@@ -27,6 +27,8 @@ let studyActiveNumIdx = 0;
 let studyRevealed = false;
 let studyLocalShowDE = false;
 let studyShuffledOptions = [];
+let studySonuc = null; // son "Cevabı kontrol et" sonucunun özeti (geri bildirim kutusu için)
+let sinavSonDakikaUyarildi = false;
 
 // Exam View State
 let selectedExamMode = 'B'; // 'B' | 'C' | 'CE' | 'COMBO' | 'KOD95'
@@ -46,6 +48,12 @@ let examLocalShowDE = false;
 let examTimerInterval = null;
 let examSecondsLeft = 45 * 60;
 let examPaused = false;
+
+// Tarayıcı geri tuşuyla gezinme durumu (bkz. gecmisiBaslat)
+const GORUNUMLER = ['dashboard', 'study', 'exam', 'cheatsheet', 'stats'];
+let aktifGorunum = 'dashboard';
+let aktifSekme = 'dashboard';
+let gecmisHazir = false;
 
 // ── Official Exam Configs ────────────────────────────────────────────────
 const EXAM_CONFIG = {
@@ -125,6 +133,14 @@ onAppReady(() => {
   }
 
   document.addEventListener('keydown', handleKeyboardShortcuts);
+  gecmisiBaslat();
+  // Sınav çubuğu, üstteki menü çubuğunun hemen altına yapışsın
+  const ustCubukOlc = () => {
+    const t = document.querySelector('.topbar');
+    if (t) document.documentElement.style.setProperty('--ust-cubuk', (t.offsetHeight + 14) + 'px');
+  };
+  ustCubukOlc();
+  window.addEventListener('resize', ustCubukOlc);
 });
 
 function sanitizeLoadedState(parsed) {
@@ -140,6 +156,12 @@ function sanitizeLoadedState(parsed) {
   }
   if (typeof parsed.alwaysShowDE === 'boolean') {
     state.alwaysShowDE = parsed.alwaysShowDE;
+  }
+  if (parsed.gunluk && typeof parsed.gunluk === 'object' && !Array.isArray(parsed.gunluk)) {
+    state.gunluk = parsed.gunluk;
+  }
+  if ([10, 20, 30, 50].includes(parsed.gunlukHedef)) {
+    state.gunlukHedef = parsed.gunlukHedef;
   }
 }
 
@@ -193,9 +215,48 @@ function renderLeitnerDotsHtml(code) {
   return `<span class="leitner-dots" title="Leitner 3 Aşamalı Öğrenme Sistemi">${dots} <span>${label}</span></span>`;
 }
 
+// ── Tarayıcı geri/ileri tuşuyla gezinme ─────────────────────────────────
+// Her sekme değişimi tarayıcı geçmişine yazılır; geri tuşu bir önceki ekrana ve
+// oradaki kaydırma konumuna döner. Telefondaki soru çekmecesi ve büyütülmüş resim de
+// geçmişe "katman" olarak yazılır, geri tuşu önce onları kapatır.
+// (Değişkenler dosyanın başında tanımlı: başlangıç kodu bu satırlardan önce çalışır.)
+function gecmiseYaz(durum) {
+  if (!gecmisHazir) return;
+  try {
+    // Ayrılmadan önce bulunduğumuz ekranın kaydırma konumunu sakla
+    history.replaceState(Object.assign({}, history.state, { y: window.scrollY }), '');
+    const iz = '#' + durum.view + (durum.katman ? '-' + durum.katman : '');
+    history.pushState(durum, '', iz);
+  } catch (_) { /* geçmiş API'si yoksa sessizce geç */ }
+}
+
+function gecmisiBaslat() {
+  try { history.scrollRestoration = 'manual'; } catch (_) {}
+  const istenen = (location.hash || '').slice(1).split('-')[0];
+  const ilk = GORUNUMLER.includes(istenen) ? istenen : 'dashboard';
+  try { history.replaceState({ view: ilk, tab: ilk }, '', '#' + ilk); } catch (_) {}
+  if (ilk !== 'dashboard') switchView(ilk, null, { gecmis: true });
+  gecmisHazir = true;
+  window.addEventListener('popstate', e => {
+    const s = e.state || { view: 'dashboard', tab: 'dashboard' };
+    if (lightboxAcikMi() && s.katman !== 'resim') closeLightbox(true);
+    if (cekmeceAcikMi() && s.katman !== 'cekmece') closeStudyDrawer(true);
+    if (s.view && (s.view !== aktifGorunum || (s.tab || s.view) !== aktifSekme)) {
+      switchView(s.view, s.tab && s.tab !== s.view ? s.tab : null, { gecmis: true, y: s.y });
+    }
+  });
+}
+
 // ── Navigation & View Switching (Pauses Exam Timer When Leaving Exam) ────
-function switchView(viewName, highlightTabName = null) {
+function switchView(viewName, highlightTabName = null, secenek = {}) {
   if ('speechSynthesis' in window) window.speechSynthesis.cancel();
+  const tabKeyYeni = highlightTabName || viewName;
+  if (!secenek.gecmis && (viewName !== aktifGorunum || tabKeyYeni !== aktifSekme)) {
+    if (cekmeceAcikMi()) closeStudyDrawer(true);
+    gecmiseYaz({ view: viewName, tab: tabKeyYeni });
+  }
+  aktifGorunum = viewName;
+  aktifSekme = tabKeyYeni;
 
   // Pause exam timer when navigating away from exam view; resume when returning
   if (viewName !== 'exam') {
@@ -219,7 +280,13 @@ function switchView(viewName, highlightTabName = null) {
     updateFormulaCalc();
     renderSignFlashcards();
   }
-  window.scrollTo({ top: 0, behavior: 'smooth' });
+  if (typeof secenek.y === 'number') {
+    // Geri tuşuyla dönüldü: o ekrandaki eski kaydırma konumuna dön
+    const y = secenek.y;
+    requestAnimationFrame(() => window.scrollTo(0, y));
+  } else {
+    window.scrollTo({ top: 0, behavior: secenek.gecmis ? 'auto' : 'smooth' });
+  }
 }
 
 function toggleGlobalGerman() {
@@ -274,6 +341,7 @@ function speakCurrentQuestion() {
 
 // ── Dashboard Logic ──────────────────────────────────────────────────────
 function refreshDashboard() {
+  renderDashUst();
   const total = DB.length;
   let learned = 0;
   let learning = 0;
@@ -484,10 +552,12 @@ function selectStudyQuestion(idx) {
   studyNumberValues = Array(numInputsCount).fill('');
   studyActiveNumIdx = 0;
   studyRevealed = false;
+  studySonuc = null;
   studyLocalShowDE = false;
   studyShuffledOptions = curQ && Array.isArray(curQ.answers_tr)
     ? sampleRandom(curQ.answers_tr, curQ.answers_tr.length)
     : [];
+  sonKonumKaydet(curQ);
 
   document.querySelectorAll('#study-q-list .q-list-item').forEach(el => {
     const match = Number(el.dataset.idx) === studyIndex;
@@ -542,6 +612,7 @@ function renderStudyQuestion() {
       </div>
     </div>
 
+    ${studySonucHtml(q)}
     <div class="q-title-tr">${esc(q.question_tr)}</div>
     ${showDE && q.question_de ? `<div class="q-title-de">🇩🇪 ${esc(q.question_de)}</div>` : ''}
     ${q.pretext_tr ? `<div class="q-pretext">${esc(q.pretext_tr)}</div>` : ''}
@@ -593,6 +664,7 @@ function toggleStudyLocalDE() {
 function peekStudyCorrectAnswer() {
   const q = studyFiltered[studyIndex];
   if (!q) return;
+  studySonuc = null; // "Doğru cevabı gör" bir deneme değildir; geri bildirim kutusu gösterilmez
   if (studyRevealed) {
     const numCount = (Array.isArray(q.number_inputs) && q.number_inputs.length) ? q.number_inputs.length : 1;
     studyRevealed = false;
@@ -622,13 +694,24 @@ function openStudyDrawer() {
   if (!document.getElementById('view-study').classList.contains('active')) {
     switchView('study');
   }
+  if (cekmeceAcikMi()) return;
   document.getElementById('study-sidebar-drawer')?.classList.add('drawer-open');
   document.getElementById('drawer-backdrop')?.classList.add('open');
+  gecmiseYaz({ view: aktifGorunum, tab: aktifSekme, katman: 'cekmece' });
 }
 
-function closeStudyDrawer() {
+function cekmeceAcikMi() {
+  return !!document.getElementById('study-sidebar-drawer')?.classList.contains('drawer-open');
+}
+
+// gecmistenGeldi=true: geri tuşuyla kapanıyor (geçmişe dokunma)
+function closeStudyDrawer(gecmistenGeldi = false) {
+  const acikti = cekmeceAcikMi();
   document.getElementById('study-sidebar-drawer')?.classList.remove('drawer-open');
   document.getElementById('drawer-backdrop')?.classList.remove('open');
+  if (acikti && !gecmistenGeldi && history.state && history.state.katman === 'cekmece') {
+    history.back(); // çekmecenin geçmiş kaydını geri al
+  }
 }
 
 function toggleStar(code) {
@@ -675,10 +758,10 @@ function buildStudyAnswerAreaHtml(q) {
     if (studyRevealed) {
       const ok = evaluateNumberQuestion(q, studyNumberValues);
       feedbackHtml = ok
-        ? `<div style="margin-top:12px;padding:10px 14px;border-radius:9px;background:var(--green-soft);border:1px solid var(--green);color:#86efac;font-weight:700;">
+        ? `<div style="margin-top:12px;padding:10px 14px;border-radius:9px;background:var(--green-soft);border:1px solid var(--green);color:var(--green-ink);font-weight:700;">
              ✅ Doğru Cevap! (${esc(q.correct_answer_text)})
            </div>`
-        : `<div style="margin-top:12px;padding:10px 14px;border-radius:9px;background:var(--red-soft);border:1px solid var(--red);color:#fca5a5;font-weight:700;">
+        : `<div style="margin-top:12px;padding:10px 14px;border-radius:9px;background:var(--red-soft);border:1px solid var(--red);color:var(--red-ink);font-weight:700;">
              ❌ Yanlış! Doğru Cevap: <b>${esc(q.correct_answer_text)}</b>
            </div>`;
     }
@@ -721,7 +804,7 @@ function buildStudyAnswerAreaHtml(q) {
   const answers = (studyShuffledOptions && studyShuffledOptions.length)
     ? studyShuffledOptions
     : (q.answers_tr || []);
-  let html = '<div class="options-list">';
+  let html = cokDogruNotuHtml(q) + '<div class="options-list">';
   answers.forEach((a, displayIdx) => {
     const key = String(a.num != null ? a.num : displayIdx + 1);
     const displayLabel = String.fromCharCode(65 + displayIdx); // A, B, C
@@ -767,6 +850,17 @@ function buildStudyAnswerAreaHtml(q) {
   return html;
 }
 
+// Şıklı sorularda puanlama kuralını hatırlatan kısa not.
+// TÜV/DEKRA: birden fazla şık doğru olabilir; soru ancak TÜM doğrular işaretlenip hiç yanlış
+// işaretlenmezse doğru sayılır. IHK (Kod 95): 1 puanlık soruda 1, 2 puanlıkta 2 doğru şık vardır.
+function cokDogruNotuHtml(q) {
+  const dogruSayisi = (q.answers_tr || []).filter(a => a.is_correct).length;
+  const metin = isKod95Question(q)
+    ? `☑️ Bu soruda <b>${dogruSayisi}</b> doğru şık var. Hepsini işaretle; eksik veya fazla işaret yanlış sayılır.`
+    : '☑️ Birden fazla şık doğru olabilir. <b>Tüm doğru şıkları</b> işaretle; eksik veya fazla işaret yanlış sayılır.';
+  return `<div class="cok-dogru-notu" style="margin:6px 0 8px;font-size:12px;color:var(--muted);">${metin}</div>`;
+}
+
 // Kod 95: sorunun resmi DIHK havuzuyla karşılaştırma sonucu + "cevap resmi değil" uyarısı.
 function buildKaynakNotuHtml(q) {
   if (!q.kaynak) return '';
@@ -778,7 +872,7 @@ function buildKaynakNotuHtml(q) {
   const kaynak = k.pdf_no ? ` <span style="opacity:.8;">(DIHK ${k.baski}, Bölüm ${esc(k.pdf_no.replace('.', ' • Soru '))})</span>` : '';
   const puan = k.resmi_puan ? ` Resmi puan: ${k.resmi_puan}.` : '';
   return `
-    <div style="margin:10px 0;padding:9px 12px;border-radius:9px;border:1px solid ${renk};background:rgba(148,163,184,0.06);font-size:12.5px;line-height:1.5;">
+    <div style="margin:10px 0;padding:9px 12px;border-radius:9px;border:1px solid ${renk};background:color-mix(in srgb, var(--muted) 6%, transparent);font-size:12.5px;line-height:1.5;">
       <div style="color:${renk};font-weight:700;">${ikon} ${esc(k.not)}${esc(puan)}${kaynak}</div>
       ${k.uyari ? `<div style="color:var(--gold);font-weight:700;margin-top:3px;">⚠️ ${esc(k.uyari)}</div>` : ''}
       <div style="color:var(--muted);margin-top:3px;">ℹ️ İşaretli cevap resmi değildir: DIHK yalnız soruları yayımlar, cevap anahtarı yayımlamaz.</div>
@@ -845,11 +939,172 @@ function checkStudyAnswer() {
     isCorrect = evaluateChoiceQuestion(q, studySelectedChoices);
   }
 
+  // Kontrol sonucunun özeti: ekranın üstünde büyük geri bildirim olarak gösterilir
+  if (q.type === 'number') {
+    studySonuc = { dogru: isCorrect, sayi: true };
+  } else {
+    const dogrular = (q.answers_tr || []).filter(a => a.is_correct).map((a, i) => String(a.num != null ? a.num : i + 1));
+    const secili = Array.from(studySelectedChoices).map(String);
+    studySonuc = {
+      dogru: isCorrect,
+      eksik: dogrular.filter(k => !secili.includes(k)).length,
+      fazla: secili.filter(k => !dogrular.includes(k)).length,
+      toplamDogru: dogrular.length
+    };
+  }
   studyRevealed = true;
   recordQuestionAttempt(q.code, isCorrect);
+  gunlukSay();
   renderStudyQuestion();
   renderStudySidebarList();
+  const kutu = document.getElementById('study-sonuc');
+  if (kutu) kutu.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
 }
+
+// 1) Hızlı geri bildirim: kontrol sonrası sorunun üstünde büyük, renkli sonuç
+function studySonucHtml(q) {
+  if (!studyRevealed || !studySonuc) return '';
+  const s = studySonuc;
+  if (s.dogru) {
+    return `<div id="study-sonuc" class="sonuc-kutu sonuc-dogru" role="status">✅ Doğru!<small>${s.sayi ? 'Cevabın doğru.' : (s.toplamDogru > 1 ? `${s.toplamDogru} doğru şıkkın hepsini buldun.` : 'Doğru şıkkı buldun.')}</small></div>`;
+  }
+  let neden = '';
+  if (s.sayi) neden = `Doğru cevap: ${esc(q.correct_answer_text)}`;
+  else {
+    const parca = [];
+    if (s.eksik) parca.push(`${s.eksik} doğru şıkkı kaçırdın`);
+    if (s.fazla) parca.push(`${s.fazla} yanlış şıkkı işaretledin`);
+    neden = parca.join(', ') + '.' + (s.toplamDogru > 1 ? ` Bu soruda ${s.toplamDogru} doğru şık vardı; hepsini işaretlemelisin.` : '');
+  }
+  return `<div id="study-sonuc" class="sonuc-kutu sonuc-yanlis" role="status">❌ Yanlış<small>${neden}</small></div>`;
+}
+
+// 5) Günlük hedef ve çalışma serisi
+function bugunAnahtar(tarih = new Date()) {
+  const y = tarih.getFullYear(), m = String(tarih.getMonth() + 1).padStart(2, '0'), g = String(tarih.getDate()).padStart(2, '0');
+  return `${y}-${m}-${g}`;
+}
+function gunlukSay(adet = 1) {
+  if (!state.gunluk || typeof state.gunluk !== 'object') state.gunluk = {};
+  const k = bugunAnahtar();
+  state.gunluk[k] = (state.gunluk[k] || 0) + adet;
+  saveProgress();
+}
+function calismaSerisi() {
+  const g = state.gunluk || {};
+  const gun = new Date();
+  if (!g[bugunAnahtar(gun)]) gun.setDate(gun.getDate() - 1); // bugün henüz çalışılmadıysa dünden say
+  let seri = 0;
+  while (g[bugunAnahtar(gun)] > 0) { seri++; gun.setDate(gun.getDate() - 1); }
+  return seri;
+}
+function gunlukHedefSec(n) {
+  state.gunlukHedef = n;
+  saveProgress();
+  renderDashUst();
+}
+
+// 4) Kaldığın yerden devam: son çalışılan soru ve filtreler
+const SON_KONUM_KEY = 'FAHRSCHULE_SON_KONUM_V1';
+function sonKonumKaydet(q) {
+  if (!q || !document.getElementById('view-study')?.classList.contains('active')) return;
+  const deger = id => document.getElementById(id)?.value || 'ALL';
+  try {
+    localStorage.setItem(SON_KONUM_KEY, JSON.stringify({
+      code: q.code, ts: Date.now(),
+      arama: document.getElementById('study-search')?.value || '',
+      sinif: deger('study-class-filter'), puan: deger('study-points-filter'),
+      durum: deger('study-status-filter'), tur: deger('study-type-filter'),
+      sira: studyIndex + 1, toplam: studyFiltered.length
+    }));
+  } catch (_) {}
+}
+function sonKonumOku() {
+  try { return JSON.parse(localStorage.getItem(SON_KONUM_KEY) || 'null'); } catch (_) { return null; }
+}
+function kaldiginYerdenDevam() {
+  const k = sonKonumOku();
+  if (!k) { switchView('study'); return; }
+  const ata = (id, v) => { const el = document.getElementById(id); if (el) el.value = v; };
+  ata('study-search', k.arama || '');
+  ata('study-class-filter', k.sinif); ata('study-points-filter', k.puan);
+  ata('study-status-filter', k.durum); ata('study-type-filter', k.tur);
+  applyStudyFilters();
+  switchView('study');
+  const i = studyFiltered.findIndex(q => q.code === k.code);
+  if (i >= 0) selectStudyQuestion(i);
+}
+
+function renderDashUst() {
+  const kap = document.getElementById('dash-ust');
+  if (!kap) return;
+  const k = sonKonumOku();
+  const q = k && DB.find(x => x.code === k.code);
+  const sinifAd = { ALL: 'Tüm sorular', Grundstoff: 'Grundstoff', 'Klasse B': 'Klasse B', 'Klasse C': 'Klasse C', 'Klasse CE': 'Klasse CE', 'Kod 95': 'Kod 95' };
+  const devam = q ? `
+    <div class="dash-kart dash-devam">
+      <span class="dash-etiket">Kaldığın yerden devam</span>
+      <strong>${esc(sinifAd[k.sinif] || k.sinif)} · Soru ${k.sira} / ${k.toplam}</strong>
+      <span class="dash-soluk">${esc((q.question_tr || '').slice(0, 90))}${(q.question_tr || '').length > 90 ? '…' : ''}</span>
+      <button class="btn btn-primary ada" onclick="kaldiginYerdenDevam()">Devam et<span class="ok" aria-hidden="true">↗</span></button>
+    </div>` : `
+    <div class="dash-kart dash-devam">
+      <span class="dash-etiket">Başla</span>
+      <strong>İlk sorudan başla</strong>
+      <span class="dash-soluk">Çalıştıkça burada kaldığın soru görünecek.</span>
+      <button class="btn btn-primary ada" onclick="switchView('study')">Soru çalış<span class="ok" aria-hidden="true">↗</span></button>
+    </div>`;
+  const simdi = new Date(), saat = simdi.getHours();
+  const tarihEl = document.getElementById('dash-tarih'), selamEl = document.getElementById('dash-selam-yazi');
+  if (tarihEl) tarihEl.textContent = simdi.toLocaleDateString('tr-TR', { weekday: 'long', day: 'numeric', month: 'long' });
+  if (selamEl) selamEl.textContent = saat < 5 ? 'İyi geceler' : saat < 11 ? 'Günaydın' : saat < 17 ? 'İyi günler' : saat < 22 ? 'İyi akşamlar' : 'İyi geceler';
+  const hedef = state.gunlukHedef || 30;
+  const bugun = (state.gunluk || {})[bugunAnahtar()] || 0;
+  const seri = calismaSerisi();
+  const yuzde = Math.min(100, Math.round(bugun / hedef * 100));
+  const hedefDugmeleri = [10, 20, 30, 50].map(n =>
+    `<button class="hedef-btn${n === hedef ? ' secili' : ''}" onclick="gunlukHedefSec(${n})" aria-pressed="${n === hedef}">${n}</button>`).join('');
+  kap.innerHTML = devam + `
+    <div class="dash-kart dash-hedef">
+      <div class="hedef-ust">
+        <div class="halka" style="--p:${yuzde}" role="img" aria-label="Bugünkü hedefin yüzde ${yuzde} kadarı tamam"><span>${yuzde}%</span></div>
+        <div class="hedef-yazi">
+          <span class="dash-etiket">Bugünkü hedef</span>
+          <strong>${bugun} / ${hedef} soru${bugun >= hedef ? ' · tamam 🎉' : ''}</strong>
+          <span class="seri-rozet">🔥 ${seri} gün seri</span>
+        </div>
+      </div>
+      <div class="dash-satir"><span class="dash-soluk">Günlük hedef</span><span class="hedef-grup">${hedefDugmeleri}</span></div>
+    </div>`;
+}
+
+// ── Açık / koyu tema (v23) ── seçim cihazda saklanır; seçim yoksa cihazın ayarı geçerli
+function etkinTema() {
+  const t = document.documentElement.dataset.tema;
+  if (t === 'acik' || t === 'koyu') return t;
+  return window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'koyu' : 'acik';
+}
+function temaDugmesiGuncelle() {
+  const koyu = etkinTema() === 'koyu';
+  const btn = document.getElementById('tema-btn');
+  if (btn) {
+    btn.textContent = koyu ? '☀️' : '🌙';
+    btn.setAttribute('aria-label', koyu ? 'Açık temaya geç' : 'Koyu temaya geç');
+  }
+  if (document.documentElement.dataset.tema) {
+    document.querySelectorAll('meta[name="theme-color"]').forEach(m => m.setAttribute('content', koyu ? '#0b1020' : '#dfe9f6'));
+  }
+}
+function temaDegistir() {
+  const yeni = etkinTema() === 'koyu' ? 'acik' : 'koyu';
+  document.documentElement.dataset.tema = yeni;
+  try { localStorage.setItem('FAHRSCHULE_TEMA', yeni); } catch (_) {}
+  temaDugmesiGuncelle();
+}
+if (window.matchMedia) {
+  try { window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', temaDugmesiGuncelle); } catch (_) {}
+}
+temaDugmesiGuncelle();
 
 function recordQuestionAttempt(code, isCorrect) {
   const prev = state.qStats[code] || { status: 'unseen', correctStreak: 0, wrongCount: 0 };
@@ -1095,6 +1350,7 @@ function startExamTimer(seconds) {
   if (examTimerInterval) clearInterval(examTimerInterval);
   examSecondsLeft = seconds;
   examPaused = false;
+  sinavSonDakikaUyarildi = false;
   updateExamTimerDisplay();
   examTimerInterval = setInterval(() => {
     if (examPaused) return;
@@ -1111,7 +1367,40 @@ function updateExamTimerDisplay() {
   const m = Math.floor(Math.max(0, examSecondsLeft) / 60);
   const s = Math.max(0, examSecondsLeft) % 60;
   const el = document.getElementById('exam-timer');
-  if (el) el.textContent = `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+  if (el) {
+    el.textContent = `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+    // 2) Son 5 dakika: süre kırmızı yanıp söner ve bir kez uyarı çıkar
+    const sonDakikalar = examSecondsLeft <= 300 && examSecondsLeft > 0;
+    el.classList.toggle('son-dakikalar', sonDakikalar);
+    if (sonDakikalar && !sinavSonDakikaUyarildi && examQuestions.length) {
+      sinavSonDakikaUyarildi = true;
+      const kalan = examQuestions.length - examQuestions.filter(isExamQuestionAnswered).length;
+      kisaBildirim(`⏰ Son 5 dakika! ${kalan > 0 ? kalan + ' soru cevaplanmadı.' : 'Tüm sorular cevaplandı.'}`);
+    }
+  }
+}
+
+// Ekranın altında birkaç saniye görünen kısa bildirim
+function kisaBildirim(metin) {
+  let el = document.getElementById('kisa-bildirim');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'kisa-bildirim';
+    el.setAttribute('role', 'status');
+    document.body.appendChild(el);
+  }
+  el.textContent = metin;
+  el.classList.add('gorunur');
+  clearTimeout(el._zaman);
+  el._zaman = setTimeout(() => el.classList.remove('gorunur'), 5000);
+}
+
+// 2) Sınav üst çubuğundaki ilerleme göstergesi
+function sinavIlerlemeGuncelle() {
+  const cubuk = document.getElementById('exam-progress-fill');
+  if (!cubuk || !examQuestions.length) return;
+  const cevap = examQuestions.filter(isExamQuestionAnswered).length;
+  cubuk.style.width = Math.round(cevap / examQuestions.length * 100) + '%';
 }
 
 function isExamQuestionAnswered(q) {
@@ -1182,7 +1471,7 @@ function renderExamQuestion() {
         </div>
 
         <video id="tuv-exam-video-el" preload="metadata" ${posterFile ? `poster="media/${esc(posterFile)}"` : ''}
-          style="width:100%;max-width:680px;max-height:360px;border-radius:10px;background:#000;">
+          style="width:100%;max-width:680px;max-height:360px;border-radius:10px;background: var(--media-bg);">
           <source src="media/${esc(vidFile)}" type="video/mp4" />
         </video>
 
@@ -1233,7 +1522,7 @@ function renderExamQuestion() {
       `;
     } else {
       const answers = examOptionOrder.get(q.code) || q.answers_tr || [];
-      answerHtml = '<div class="options-list">';
+      answerHtml = cokDogruNotuHtml(q) + '<div class="options-list">';
       answers.forEach((a, displayIdx) => {
         const key = String(a.num != null ? a.num : displayIdx + 1);
         const displayLabel = String.fromCharCode(65 + displayIdx);
@@ -1254,7 +1543,7 @@ function renderExamQuestion() {
     const mediaPart = hasVideo
       ? `<div class="q-media-box">
            ${endImg ? `<img src="media/${esc(endImg)}" alt="Video Son Kare" onclick="openLightbox('media/${esc(endImg)}')" />` : ''}
-           <div style="width:100%;padding:8px 12px;border-radius:8px;background:rgba(14,165,233,0.1);border:1px solid var(--border);font-size:12px;color:#bae6fd;text-align:center;">
+           <div style="width:100%;padding:8px 12px;border-radius:8px;background:color-mix(in srgb, var(--primary) 10%, transparent);border:1px solid var(--border);font-size:12px;color:var(--accent-ink);text-align:center;">
              🎬 Video izlendi (${vState.plays}/5) ve son kare (_ende) sabitlendi.
            </div>
          </div>`
@@ -1346,6 +1635,7 @@ function stepExamQuestion(dir) {
 }
 
 function renderExamPills() {
+  sinavIlerlemeGuncelle();
   const grid = document.getElementById('exam-pills-grid');
   if (!grid) return;
   grid.innerHTML = '';
@@ -1393,6 +1683,7 @@ function finalizeExam() {
       : evaluateChoiceQuestion(q, ans.selected);
 
     recordQuestionAttempt(q.code, ok);
+    if (isExamQuestionAnswered(q)) gunlukSay();
     totalPointsPossible += q.points;
 
     if (ok) {
@@ -1522,12 +1813,12 @@ function renderExamResult(res) {
             <div style="background:var(--panel);border:1px solid var(--border-light);border-radius:11px;padding:14px;">
               <div style="display:flex;justify-content:space-between;font-size:12px;color:var(--muted);margin-bottom:4px;">
                 <span><b>Soru #${idx}</b> • Kod: ${esc(q.code)} (${esc(q.category)})</span>
-                <span style="color:#fca5a5;font-weight:800;">${q.points} Puan</span>
+                <span style="color:var(--red-ink);font-weight:800;">${q.points} Puan</span>
               </div>
               <div style="font-weight:700;font-size:15px;margin-bottom:6px;">${esc(q.question_tr)}</div>
-              ${q.question_de ? `<div style="font-size:13px;color:#fde68a;margin-bottom:6px;">🇩🇪 ${esc(q.question_de)}</div>` : ''}
-              <div style="font-size:13px;color:#86efac;margin-bottom:6px;"><b>✓ Doğru Cevap:</b> ${esc(corrList)}</div>
-              ${q.explanation_tr ? `<div style="font-size:12.5px;color:#cbd5e1;border-top:1px solid var(--border);padding-top:6px;">${esc(q.explanation_tr)}</div>` : ''}
+              ${q.question_de ? `<div style="font-size:13px;color:var(--gold-ink);margin-bottom:6px;">🇩🇪 ${esc(q.question_de)}</div>` : ''}
+              <div style="font-size:13px;color:var(--green-ink);margin-bottom:6px;"><b>✓ Doğru Cevap:</b> ${esc(corrList)}</div>
+              ${q.explanation_tr ? `<div style="font-size:12.5px;color:var(--text-2);border-top:1px solid var(--border);padding-top:6px;">${esc(q.explanation_tr)}</div>` : ''}
             </div>
           `;
         }).join('')}
@@ -1554,10 +1845,10 @@ function updateFormulaCalc() {
   const anhalte = reaktion + brems;
 
   out.innerHTML = `
-    <span>🏃 Reaksiyon: <b style="color:#38bdf8;">${reaktion.toFixed(1).replace('.0','')} m</b></span>
-    <span>🛑 Normal Fren: <b style="color:#fde68a;">${brems.toFixed(1).replace('.0','')} m</b></span>
-    <span>⚠️ Tehlike Freni: <b style="color:#fca5a5;">${gefahr.toFixed(1).replace('.0','')} m</b></span>
-    <span>🏁 Toplam Duruş: <b style="color:#4ade80;">${anhalte.toFixed(1).replace('.0','')} m</b></span>
+    <span>🏃 Reaksiyon: <b style="color:var(--accent-ink);">${reaktion.toFixed(1).replace('.0','')} m</b></span>
+    <span>🛑 Normal Fren: <b style="color:var(--gold-ink);">${brems.toFixed(1).replace('.0','')} m</b></span>
+    <span>⚠️ Tehlike Freni: <b style="color:var(--red-ink);">${gefahr.toFixed(1).replace('.0','')} m</b></span>
+    <span>🏁 Toplam Duruş: <b style="color:var(--green-ink);">${anhalte.toFixed(1).replace('.0','')} m</b></span>
   `;
 }
 
@@ -1577,19 +1868,19 @@ function renderSignFlashcards() {
         <span><b>${esc(c.code)}</b> • ${esc(c.category)}</span>
         <span class="mini-pill">${c.points} Puan</span>
       </div>
-      <div style="background:#000;border-radius:8px;padding:8px;text-align:center;">
+      <div style="background: var(--media-bg);border-radius:8px;padding:8px;text-align:center;">
         <img src="media/${esc(c.img)}" alt="${esc(c.code)}" loading="lazy" style="max-height:130px;max-width:100%;object-fit:contain;" />
       </div>
-      <div style="font-size:13.5px;font-weight:700;color:#fff;">${esc(c.q_tr)}</div>
-      <div style="font-size:11.5px;color:#fde68a;">🇩🇪 ${esc(c.q_de)}</div>
+      <div style="font-size:13.5px;font-weight:700;color: var(--text);">${esc(c.q_tr)}</div>
+      <div style="font-size:11.5px;color:var(--gold-ink);">🇩🇪 ${esc(c.q_de)}</div>
       <div class="fc-ans" style="display:none;margin-top:6px;padding-top:8px;border-top:1px dashed var(--border-light);font-size:12.5px;">
-        <div style="color:#4ade80;font-weight:700;">✓ TR: ${esc(c.a_tr)}</div>
-        ${c.a_de ? `<div style="color:#94a3b8;margin-top:3px;">✓ DE: ${esc(c.a_de)}</div>` : ''}
+        <div style="color:var(--green-ink);font-weight:700;">✓ TR: ${esc(c.a_tr)}</div>
+        ${c.a_de ? `<div style="color:var(--muted);margin-top:3px;">✓ DE: ${esc(c.a_de)}</div>` : ''}
         <button class="btn btn-outline" style="margin-top:8px;padding:5px 10px;font-size:11px;width:100%;" onclick="event.stopPropagation(); jumpToQuestionByCode('${esc(c.code)}')">
           📚 Soruya Git →
         </button>
       </div>
-      <div style="font-size:11px;color:#38bdf8;text-align:center;margin-top:auto;">👆 Cevabı Görmek İçin Dokun</div>
+      <div style="font-size:11px;color:var(--accent-ink);text-align:center;margin-top:auto;">👆 Cevabı Görmek İçin Dokun</div>
     </div>
   `).join('');
 }
@@ -1714,12 +2005,23 @@ function openLightbox(src) {
   const img = document.getElementById('lightbox-img');
   if (!modal || !img) return;
   img.src = src;
+  const zatenAcik = lightboxAcikMi();
   modal.classList.add('open');
+  if (!zatenAcik) gecmiseYaz({ view: aktifGorunum, tab: aktifSekme, katman: 'resim' });
 }
 
-function closeLightbox() {
+function lightboxAcikMi() {
+  return !!document.getElementById('lightbox-modal')?.classList.contains('open');
+}
+
+// gecmistenGeldi=true: geri tuşuyla kapanıyor (geçmişe dokunma)
+function closeLightbox(gecmistenGeldi = false) {
   const modal = document.getElementById('lightbox-modal');
+  const acikti = lightboxAcikMi();
   if (modal) modal.classList.remove('open');
+  if (acikti && !gecmistenGeldi && history.state && history.state.katman === 'resim') {
+    history.back();
+  }
 }
 
 function handleKeyboardShortcuts(e) {
