@@ -1,4 +1,4 @@
-const CACHE_NAME = 'fahrschule-gold-v23';
+const CACHE_NAME = 'fahrschule-gold-v24';
 // Uygulama kabuğu. Şifreli yayında questions_full.js yoktur (yerine sifreli/sorular.bin);
 // bu yüzden dosyalar tek tek ve hata yutularak önbelleğe alınır.
 const CORE_ASSETS = [
@@ -53,6 +53,8 @@ function anahtarOku() {
 
 self.addEventListener('message', e => {
   if (e.data && e.data.tip === 'anahtar-silindi') anahtarBellek = null;
+  // Sert yenilemeyle SW'siz açılan sayfayı devral (yoksa medya çözülemez).
+  if (e.data && e.data.tip === 'devral') e.waitUntil(self.clients.claim());
 });
 
 const MIME = { jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', webp: 'image/webp', gif: 'image/gif', svg: 'image/svg+xml', mp4: 'video/mp4' };

@@ -16,7 +16,7 @@
 (function () {
   'use strict';
 
-  const SURUM = '23';
+  const SURUM = '24';
   const IDB_AD = 'ehliyet-kilit';
   const IDB_DEPO = 'anahtar';
   const IDB_ANAHTAR = 'k';
@@ -97,12 +97,29 @@
     try {
       await navigator.serviceWorker.register('./sw.js', { updateViaCache: 'none' });
     } catch (_) { return; }
-    if (navigator.serviceWorker.controller) return;
-    // İlk kurulum: sw.js clients.claim() ile sayfayı devralana kadar bekle (en çok 8 sn).
-    await new Promise(res => {
+    if (navigator.serviceWorker.controller) {
+      try { sessionStorage.removeItem('sw-yenile'); } catch (_) {}
+      return;
+    }
+    // Sayfa service worker'sız açıldı: ya ilk kurulum, ya da sert yenileme (Ctrl+Shift+R / Ctrl+F5).
+    // Sert yenilemede tarayıcı SW'yi bilerek atlar; o zaman resim/videolar çözülemez (hepsi boş kalır).
+    const reg = await navigator.serviceWorker.getRegistration().catch(() => null);
+    const bekle = ms => new Promise(res => {
       navigator.serviceWorker.addEventListener('controllerchange', res, { once: true });
-      setTimeout(res, 8000);
+      setTimeout(res, ms);
     });
+    if (reg && reg.active) {
+      reg.active.postMessage({ tip: 'devral' }); // SW sayfayı hemen devralsın
+      await bekle(3000);
+      if (navigator.serviceWorker.controller) return;
+      // Devralamadıysa bir kez normal yenile (sonsuz döngüye girmesin diye işaretli).
+      let denendi = false;
+      try { denendi = sessionStorage.getItem('sw-yenile') === '1'; sessionStorage.setItem('sw-yenile', '1'); } catch (_) {}
+      if (!denendi) { location.reload(); await new Promise(() => {}); }
+      return;
+    }
+    // İlk kurulum: sw.js clients.claim() ile sayfayı devralana kadar bekle (en çok 8 sn).
+    await bekle(8000);
   }
 
   // ── Giriş ekranı ───────────────────────────────────────────────────────

@@ -733,8 +733,8 @@ function buildMediaHtml(q) {
     vids.forEach((v, idx) => {
       const posterAttr = posters[idx] ? `poster="media/${esc(posters[idx])}"` : '';
       html += `
-        <video controls preload="metadata" ${posterAttr}>
-          <source src="media/${esc(v)}" type="video/mp4" />
+        <video controls preload="metadata" playsinline muted ${posterAttr}>
+          <source src="media/${esc(v)}" type="video/mp4" onerror="videoAcilmadi(this)" />
         </video>
       `;
     });
@@ -1433,6 +1433,19 @@ function playExamVideo(code) {
   }, 60);
 }
 
+// Video yüklenemezse sessizce boş kalmasın: açıklama + yeniden deneme düğmesi göster.
+function videoAcilmadi(kaynak) {
+  const video = kaynak && kaynak.closest ? kaynak.closest('video') : null;
+  if (!video || video.nextElementSibling?.classList?.contains('video-hata')) return;
+  const kutu = document.createElement('div');
+  kutu.className = 'video-hata';
+  kutu.setAttribute('role', 'alert');
+  kutu.innerHTML = '⚠️ Video açılamadı. Bağlantını kontrol edip yeniden dene. Sorun sürerse sayfayı normal yenile (Ctrl+Shift+R değil). '
+    + '<button class="btn btn-outline" type="button">Yeniden dene</button>';
+  kutu.querySelector('button').onclick = () => { kutu.remove(); video.load(); };
+  video.after(kutu);
+}
+
 function unlockExamVideoOptions(code) {
   const vState = examVideoState.get(code) || { plays: 1, unlockedOptions: false };
   vState.unlockedOptions = true;
@@ -1470,9 +1483,9 @@ function renderExamQuestion() {
           <span class="tuv-play-counter">Kalan İzleme Hakkı: ${remainingPlays} / 5</span>
         </div>
 
-        <video id="tuv-exam-video-el" preload="metadata" ${posterFile ? `poster="media/${esc(posterFile)}"` : ''}
+        <video id="tuv-exam-video-el" preload="metadata" playsinline muted ${posterFile ? `poster="media/${esc(posterFile)}"` : ''}
           style="width:100%;max-width:680px;max-height:360px;border-radius:10px;background: var(--media-bg);">
-          <source src="media/${esc(vidFile)}" type="video/mp4" />
+          <source src="media/${esc(vidFile)}" type="video/mp4" onerror="videoAcilmadi(this)" />
         </video>
 
         <div style="display:flex;gap:12px;flex-wrap:wrap;justify-content:center;">

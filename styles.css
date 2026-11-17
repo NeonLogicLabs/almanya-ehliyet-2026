@@ -1848,3 +1848,7 @@ button, input, select, textarea { font-family: inherit; }
   .bottom-nav-btn { font-size: 10.5px; white-space: nowrap; }
 }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { transition: none !important; animation: none !important; } }
+
+/* Video açılamadı uyarısı */
+.video-hata { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; justify-content: space-between; width: 100%; max-width: 680px;
+  padding: 12px 14px; border-radius: 16px; background: var(--red-soft); border: 1px solid color-mix(in srgb, var(--red) 40%, transparent); color: var(--text); font-size: 14px; }
