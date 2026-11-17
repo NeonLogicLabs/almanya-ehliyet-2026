@@ -352,6 +352,10 @@ function openMistakesAndFavorites() {
 }
 
 // ── Study Mode Logic ─────────────────────────────────────────────────────
+function isEskiKod95(q) {
+  return !!(q.kaynak && (q.kaynak.durum === 'eski' || q.kaynak.durum === 'bulunamadi'));
+}
+
 function isKod95Question(q) {
   return Array.isArray(q.classes) && q.classes.includes('Kod 95');
 }
@@ -359,7 +363,7 @@ function isKod95Question(q) {
 // Counts shown in labels are computed from the data so they never drift out of sync.
 function updateDynamicCounts() {
   const fmt = n => n.toLocaleString('tr-TR');
-  const countClass = cls => DB.filter(q => questionBelongsToClass(q, cls)).length;
+  const countClass = cls => DB.filter(q => questionBelongsToClass(q, cls) && !isEskiKod95(q)).length;
 
   const clsSel = document.getElementById('study-class-filter');
   if (clsSel) {
@@ -394,6 +398,10 @@ function applyStudyFilters() {
     if (typeVal !== 'ALL' && q.type !== typeVal) return false;
 
     const box = getLeitnerBox(q.code);
+    // 2026 resmi havuzundan çıkarılmış eski Kod 95 soruları yalnız kendi filtresinde görünür.
+    const eskiSoru = isEskiKod95(q);
+    if (statusVal === 'eski') return eskiSoru && (!searchVal || `${q.code} ${q.question_tr} ${q.question_de}`.toLowerCase().includes(searchVal));
+    if (eskiSoru) return false;
     if (statusVal === 'trap' && !q.is_trap) return false;
     if (statusVal === 'unseen' && box !== 'unseen') return false;
     if (statusVal === 'wrong' && box !== 'wrong') return false;
@@ -763,7 +771,7 @@ function buildStudyAnswerAreaHtml(q) {
 function buildKaynakNotuHtml(q) {
   if (!q.kaynak) return '';
   const k = q.kaynak;
-  const iyi = k.durum === 'birebir';
+  const iyi = k.durum === 'birebir' || k.durum === 'onarildi';
   const orta = k.durum === 'metin_farkli';
   const ikon = iyi ? '✅' : (orta ? '🟡' : '⚠️');
   const renk = iyi ? 'var(--green)' : (orta ? 'var(--gold)' : 'var(--red)');
@@ -1041,6 +1049,7 @@ function startMistakesExam() {
   const wantKod95 = selectedExamMode === 'KOD95';
   const trapPool = DB.filter(q =>
     q.is_trap &&
+    !isEskiKod95(q) &&
     isKod95Question(q) === wantKod95 &&
     getLeitnerBox(q.code) !== 'wrong' &&
     !state.starred[q.code]
