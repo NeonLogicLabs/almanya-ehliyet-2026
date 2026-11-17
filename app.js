@@ -537,6 +537,7 @@ function renderStudyQuestion() {
     <div class="q-title-tr">${esc(q.question_tr)}</div>
     ${showDE && q.question_de ? `<div class="q-title-de">🇩🇪 ${esc(q.question_de)}</div>` : ''}
     ${q.pretext_tr ? `<div class="q-pretext">${esc(q.pretext_tr)}</div>` : ''}
+    ${buildKaynakNotuHtml(q)}
 
     ${buildMediaHtml(q)}
     ${buildStudyAnswerAreaHtml(q)}
@@ -758,6 +759,24 @@ function buildStudyAnswerAreaHtml(q) {
   return html;
 }
 
+// Kod 95: sorunun resmi DIHK havuzuyla karşılaştırma sonucu + "cevap resmi değil" uyarısı.
+function buildKaynakNotuHtml(q) {
+  if (!q.kaynak) return '';
+  const k = q.kaynak;
+  const iyi = k.durum === 'birebir';
+  const orta = k.durum === 'metin_farkli';
+  const ikon = iyi ? '✅' : (orta ? '🟡' : '⚠️');
+  const renk = iyi ? 'var(--green)' : (orta ? 'var(--gold)' : 'var(--red)');
+  const kaynak = k.pdf_no ? ` <span style="opacity:.8;">(DIHK ${k.baski}, Bölüm ${esc(k.pdf_no.replace('.', ' • Soru '))})</span>` : '';
+  const puan = k.resmi_puan ? ` Resmi puan: ${k.resmi_puan}.` : '';
+  return `
+    <div style="margin:10px 0;padding:9px 12px;border-radius:9px;border:1px solid ${renk};background:rgba(148,163,184,0.06);font-size:12.5px;line-height:1.5;">
+      <div style="color:${renk};font-weight:700;">${ikon} ${esc(k.not)}${esc(puan)}${kaynak}</div>
+      <div style="color:var(--muted);margin-top:3px;">ℹ️ İşaretli cevap resmi değildir: DIHK yalnız soruları yayımlar, cevap anahtarı yayımlamaz.</div>
+    </div>
+  `;
+}
+
 function buildGermanReferenceHtml(q, showCorrectness) {
   if (!q.question_de && (!q.answers_de || !q.answers_de.length)) return '';
   const opts = q.answers_de || [];
@@ -778,7 +797,7 @@ function buildGermanReferenceHtml(q, showCorrectness) {
       ` : ''}
       ${showCorrectness && q.comment_de ? `
         <div class="de-comment">
-          <b>💡 Resmi Açıklama (DE):</b> ${esc(q.comment_de)}
+          <b>💡 ${q.kaynak ? 'Kaynak Notu (DE)' : 'Resmi Açıklama (DE)'}:</b> ${esc(q.comment_de)}
         </div>
       ` : ''}
     </div>
@@ -956,9 +975,12 @@ function launchExamStage(clsKey, isCombo, smartWeighted = false) {
   const cfg = EXAM_CONFIG[clsKey];
 
   if (cfg.isIHK) {
-    const kb1Pool = DB.filter(q => q.classes.includes('Kod 95 KB1'));
-    const kb2Pool = DB.filter(q => q.classes.includes('Kod 95 KB2'));
-    const kb3Pool = DB.filter(q => q.classes.includes('Kod 95 KB3'));
+    // Sınav simülasyonu yalnız güncel (2026) resmi havuzda bulunan sorulardan kurulur;
+    // eski baskıdan kalan, bulunamayan ve şıkları uydurulmuş sorular yalnız çalışma modunda görünür.
+    const sinavaUygun = q => !q.kaynak || !['eski', 'bulunamadi', 'sik_uydurma'].includes(q.kaynak.durum);
+    const kb1Pool = DB.filter(q => q.classes.includes('Kod 95 KB1') && sinavaUygun(q));
+    const kb2Pool = DB.filter(q => q.classes.includes('Kod 95 KB2') && sinavaUygun(q));
+    const kb3Pool = DB.filter(q => q.classes.includes('Kod 95 KB3') && sinavaUygun(q));
     const sampler = smartWeighted ? sampleSmartWeighted : sampleRandom;
     examQuestions = [
       ...sampler(kb1Pool, 20),
