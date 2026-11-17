@@ -1,0 +1,7 @@
+{
+  "surum": 1,
+  "algoritma": "PBKDF2-SHA256 + AES-256-GCM",
+  "tuz": "lN+KkMwwl11U7eNRlKIN5A==",
+  "tekrar": 600000,
+  "kontrol": "GAmuiZhqQ0io7VMxp1pMsed7vns+sf8+6afWYiZmdSbBartdUr1XGLj9UcI="
+}

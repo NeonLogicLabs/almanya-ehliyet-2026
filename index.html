@@ -1,0 +1,594 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <meta name="theme-color" content="#080c16" />
+  <title>Führerschein 2026 GOLD — B + C + CE Türkçe & Almanca Sınav Sistemi</title>
+  <link rel="manifest" href="manifest.json?v=15" />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🚛</text></svg>" />
+  <link rel="stylesheet" href="styles.css?v=15" />
+</head>
+<body>
+  <!-- İçerik kilidi kilit.js'tedir: yayındaki sorular ve medya şifrelidir, şifre olmadan okunamaz. -->
+  <div class="app-shell">
+    <!-- ── TOP NAVIGATION BAR ── -->
+    <header class="topbar">
+      <div class="brand" onclick="switchView('dashboard')">
+        <div class="brand-icon">🚛</div>
+        <div class="brand-text-wrap">
+          <div class="brand-title">
+            <span class="brand-name-txt">Führerschein 2026</span>
+            <span class="gold-badge">GOLD</span>
+          </div>
+          <div class="brand-sub">B (Otomobil) • C (Kamyon) • CE (Tır) Resmi TÜV Soru Havuzu</div>
+        </div>
+      </div>
+
+      <nav class="nav-tabs">
+        <button class="nav-tab active" data-view="dashboard" onclick="switchView('dashboard')">
+          🏠 Ana Ekran
+        </button>
+        <button class="nav-tab" data-view="study" onclick="switchView('study')">
+          📚 Soru Çalış
+        </button>
+        <button class="nav-tab" data-view="exam" onclick="switchView('exam')">
+          🖥️ Sınav
+        </button>
+        <button class="nav-tab" data-view="mistakes" onclick="openMistakesAndFavorites()">
+          ⚠️ Hatalarım
+        </button>
+        <button class="nav-tab" data-view="cheatsheet" onclick="switchView('cheatsheet')">
+          📐 Rehber
+        </button>
+        <button class="nav-tab" data-view="stats" onclick="switchView('stats')">
+          📊 İstatistik
+        </button>
+      </nav>
+
+      <div class="topbar-actions">
+        <button id="mobile-filter-btn" class="de-global-toggle mobile-only-btn" onclick="openStudyDrawer()" title="Soru Listesi & Filtreler">
+          🔍 Filtre
+        </button>
+        <button id="tts-btn" class="de-global-toggle" onclick="speakCurrentQuestion()" title="Soruyu Sesli Oku (TR / DE)">
+          🔊 <span class="hide-xs">Sesli</span>
+        </button>
+        <button id="global-de-btn" class="de-global-toggle" onclick="toggleGlobalGerman()" title="Tüm sorularda Almanca orijinal metni açık/kapalı yap">
+          🇩🇪 <span class="hide-xs">Almanca:</span> <span id="global-de-state">KAPALI</span>
+        </button>
+      </div>
+    </header>
+
+    <!-- ═══════════════════════════════════════════════════════════
+         VIEW 1: DASHBOARD (ANA EKRAN)
+    ════════════════════════════════════════════════════════════ -->
+    <section id="view-dashboard" class="view-section active">
+      <div class="hero-banner">
+        <div>
+          <h1>Almanya Ehliyet Teorik Sınavına İlk Denemede Geç! 🇩🇪🇹🇷</h1>
+          <p>
+            ClickClickDrive & Führerschein 2026 GOLD içerisindeki <b>Grundstoff + B + C + CE</b> sorularının tamamı,
+            görselleri, videoları ve tek tuşla <b>🇩🇪 Almanca orijinal karşılıkları</b> ile tamamen ücretsiz elinin altında.
+          </p>
+          <div class="hero-actions">
+            <button class="btn btn-primary" onclick="switchView('study')">
+              📚 Soruları Çözmeye Başla
+            </button>
+            <button class="btn btn-gold" onclick="switchView('exam')">
+              🖥️ Gerçek TÜV / DEKRA Sınavına Gir
+            </button>
+            <button class="btn btn-outline" onclick="filterCriticalFivePoints()">
+              🔥 Sadece 5 Puanlıklar
+            </button>
+            <button id="dash-trap-btn" class="btn btn-outline" style="border-color:#f59e0b;color:#fde68a;" onclick="filterTrapQuestions()">
+              🛑 Tuzak Sorular
+            </button>
+            <button class="btn btn-outline" style="border-color:#ef4444;color:#fca5a5;" onclick="startMistakesExam()">
+              ⚡ Hatalarımdan Sınav Yap
+            </button>
+          </div>
+        </div>
+
+        <div class="readiness-box">
+          <div class="readiness-head">
+            <div>
+              <div style="font-size:12px;color:var(--muted);font-weight:700;">SINAVA HAZIRLIK BAROMETRESİ</div>
+              <div id="dash-ready-label" style="font-size:14px;font-weight:700;color:#e2e8f0;">Çalışmaya Başla</div>
+            </div>
+            <div id="dash-ready-pct" class="readiness-pct">0%</div>
+          </div>
+          <div class="progress-track">
+            <div id="dash-ready-bar" class="progress-fill"></div>
+          </div>
+          <div style="display:flex;justify-content:space-between;font-size:12px;color:var(--muted);">
+            <span id="dash-seen-text">Çözülen: 0 / 1354</span>
+            <span id="dash-exams-passed">Geçilen Sınav: 0</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Quick KPI Cards -->
+      <div class="stats-grid">
+        <div class="stat-card" onclick="switchView('study')">
+          <div class="lbl">📚 TOPLAM SORU HAVUZU</div>
+          <div class="val" id="kpi-total-q">1.354</div>
+          <div class="sub">Grundstoff + B + C + CE (Görsel & Videolu)</div>
+        </div>
+        <div class="stat-card" onclick="openFilteredStudy('learned')">
+          <div class="lbl">✅ ÖĞRENİLEN (DOĞRU)</div>
+          <div class="val" id="kpi-learned" style="color:var(--green);">0</div>
+          <div class="sub">Doğru çözdüğün sorular</div>
+        </div>
+        <div class="stat-card" onclick="openFilteredStudy('wrong')">
+          <div class="lbl">❌ TAKILDIĞIN / YANLIŞLAR</div>
+          <div class="val" id="kpi-wrong" style="color:var(--red);">0</div>
+          <div class="sub">Tekrar çözmen gereken hatalar</div>
+        </div>
+        <div class="stat-card" onclick="openFilteredStudy('starred')">
+          <div class="lbl">⭐ İŞARETLEDİĞİN SORULAR</div>
+          <div class="val" id="kpi-starred" style="color:var(--gold);">0</div>
+          <div class="sub">Sonra tekrar bakmak için kaydettiklerin</div>
+        </div>
+      </div>
+
+      <!-- License Class Cards (Exact Rules from User's Post) -->
+      <div class="class-cards-grid">
+        <div class="class-card">
+          <div class="class-card-head">
+            <div class="class-badge">🚗 Klasse B (Otomobil)</div>
+            <span class="class-rule-pill">30 Soru</span>
+          </div>
+          <ul class="class-rules-list">
+            <li>▪️ <b>20 Temel</b> (Grundstoff) + <b>10 Klasse B</b> sorusu</li>
+            <li>▪️ En fazla <b>10 hata puanı</b> hakkı</li>
+            <li>⚠️ <b>5 puanlık 2 soru</b> yanlışsa direkt kalırsın!</li>
+          </ul>
+          <div class="class-card-actions">
+            <button class="btn btn-outline" onclick="openClassStudy('Klasse B')">📚 B Soruları</button>
+            <button class="btn btn-primary" onclick="quickStartExam('B')">📝 B Sınavı</button>
+          </div>
+        </div>
+
+        <div class="class-card">
+          <div class="class-card-head">
+            <div class="class-badge">🚛 Klasse C (Kamyon)</div>
+            <span class="class-rule-pill">37 Soru</span>
+          </div>
+          <ul class="class-rules-list">
+            <li>▪️ <b>10 Temel</b> (Grundstoff) + <b>27 Klasse C</b> sorusu</li>
+            <li>▪️ En fazla <b>10 hata puanı</b> hakkı</li>
+            <li>⚠️ <b>5 puanlık 2 soru</b> yanlışsa direkt kalırsın!</li>
+          </ul>
+          <div class="class-card-actions">
+            <button class="btn btn-outline" onclick="openClassStudy('Klasse C')">📚 C Soruları</button>
+            <button class="btn btn-primary" onclick="quickStartExam('C')">📝 C Sınavı</button>
+          </div>
+        </div>
+
+        <div class="class-card">
+          <div class="class-card-head">
+            <div class="class-badge">🚚 Klasse CE (Tır / Çekici)</div>
+            <span class="class-rule-pill">30 Soru</span>
+          </div>
+          <ul class="class-rules-list">
+            <li>▪️ <b>10 Temel</b> (Grundstoff) + <b>20 Klasse CE</b> sorusu</li>
+            <li>▪️ En fazla <b>10 hata puanı</b> hakkı</li>
+            <li>⚠️ <b>5 puanlık 2 soru</b> yanlışsa direkt kalırsın!</li>
+          </ul>
+          <div class="class-card-actions">
+            <button class="btn btn-outline" onclick="openClassStudy('Klasse CE')">📚 CE Soruları</button>
+            <button class="btn btn-primary" onclick="quickStartExam('CE')">📝 CE Sınavı</button>
+          </div>
+        </div>
+
+        <div class="class-card" style="border-color:#f59e0b;background:linear-gradient(160deg, rgba(245,158,11,0.08), var(--card));">
+          <div class="class-card-head">
+            <div class="class-badge">🎓 Kod 95 (IHK LKW)</div>
+            <span class="gold-badge">396 Resmi Soru</span>
+          </div>
+          <ul class="class-rules-list">
+            <li>▪️ <b>Bölüm 1, 2 ve 3</b> (Teknik, Takograf, Yük Güvenliği)</li>
+            <li>▪️ Sınav Süresi: <b>90 Dakika</b> (50 Soru / ~60 Puan)</li>
+            <li>✅ Geçme Barajı: <b>En az %50 Puan</b> (30 Puan alan geçer!)</li>
+          </ul>
+          <div class="class-card-actions">
+            <button class="btn btn-outline" style="border-color:#f59e0b;color:#fde68a;" onclick="openClassStudy('Kod 95')">📚 Kod 95 Çalış</button>
+            <button class="btn btn-gold" onclick="quickStartExam('KOD95')">📝 IHK Sınavı</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ═══════════════════════════════════════════════════════════
+         VIEW 2: STUDY MODE (TEKRARLAMA & SORU ARŞİVİ)
+    ════════════════════════════════════════════════════════════ -->
+    <section id="view-study" class="view-section">
+      <!-- Mobile Drawer Backdrop -->
+      <div id="drawer-backdrop" class="drawer-backdrop" onclick="closeStudyDrawer()"></div>
+
+      <div class="study-layout">
+        <!-- Sidebar Filters & Question List (Slide-Up Sheet on Mobile) -->
+        <aside id="study-sidebar-drawer" class="study-sidebar">
+          <div style="display:flex;justify-content:space-between;align-items:center;">
+            <strong style="font-size:15px;">🔍 Soru Seç & Filtrele</strong>
+            <div style="display:flex;align-items:center;gap:10px;">
+              <span id="study-filter-count" style="font-size:12px;color:var(--primary);font-weight:800;">1346 soru</span>
+              <button class="drawer-close-btn" onclick="closeStudyDrawer()">✕ Kapat</button>
+            </div>
+          </div>
+
+          <div class="filter-group">
+            <input id="study-search" type="search" class="input-control" placeholder="Soru kodu (1.1.01) veya kelime ara..." oninput="applyStudyFilters()" />
+
+            <div class="filter-row-2">
+              <select id="study-class-filter" class="select-control" onchange="applyStudyFilters()">
+                <option value="ALL">Tüm Sınıflar</option>
+                <option value="Grundstoff">Grundstoff (Temel)</option>
+                <option value="Klasse B">Klasse B (Otomobil)</option>
+                <option value="Klasse C">Klasse C (Kamyon)</option>
+                <option value="Klasse CE">Klasse CE (Tır)</option>
+                <option value="Kod 95">🎓 Kod 95 IHK (Tümü)</option>
+                <option value="Kod 95 KB1">├─ Kod 95 Bölüm 1 (Teknik & Yük)</option>
+                <option value="Kod 95 KB2">├─ Kod 95 Bölüm 2 (Takograf & Mevzuat)</option>
+                <option value="Kod 95 KB3">└─ Kod 95 Bölüm 3 (Sağlık & Lojistik)</option>
+              </select>
+
+              <select id="study-points-filter" class="select-control" onchange="applyStudyFilters()">
+                <option value="ALL">Tüm Puanlar</option>
+                <option value="5">⚠️ 5 Puan (Kritik)</option>
+                <option value="4">4 Puan</option>
+                <option value="3">3 Puan</option>
+                <option value="2">2 Puan</option>
+                <option value="1">1 Puan (IHK)</option>
+              </select>
+            </div>
+
+            <div class="filter-row-2">
+              <select id="study-status-filter" class="select-control" onchange="applyStudyFilters()">
+                <option value="ALL">Tüm Durumlar (Leitner)</option>
+                <option value="trap">🛑 Tuzak Sorular</option>
+                <option value="unseen">🆕 Kutu 0: Hiç Çözülmeyenler</option>
+                <option value="wrong">🟥 Kutu 1: Yanlış Yaptıklarım</option>
+                <option value="learning">🟨 Kutu 2: Gelişenler (1-2 Doğru)</option>
+                <option value="learned">🟩 Kutu 3: Tam Öğrenilenler (3/3)</option>
+                <option value="starred">⭐ Favori İşaretlediklerim</option>
+              </select>
+
+              <select id="study-type-filter" class="select-control" onchange="applyStudyFilters()">
+                <option value="ALL">Tüm Soru Tipleri</option>
+                <option value="video">🎬 Videolu Sorular</option>
+                <option value="image_choice">📷 Görselli Sorular</option>
+                <option value="number">🔢 Sayısal Girişli</option>
+                <option value="choice">☑️ Metin Seçmeli</option>
+              </select>
+            </div>
+          </div>
+
+          <div id="study-q-list" class="sidebar-q-list"></div>
+        </aside>
+
+        <!-- Active Study Question Card -->
+        <div id="study-question-container" class="question-panel"></div>
+      </div>
+    </section>
+
+    <!-- ═══════════════════════════════════════════════════════════
+         VIEW 3: EXAM SIMULATION (TÜV / DEKRA TABLET MODU)
+    ════════════════════════════════════════════════════════════ -->
+    <section id="view-exam" class="view-section">
+      <!-- Exam Setup Card -->
+      <div id="exam-setup-view" class="card">
+        <h2 style="font-size:22px;font-weight:800;">🖥️ TÜV | DEKRA Resmi Sınav Simülasyonu</h2>
+        <p style="color:var(--muted);font-size:14px;margin-top:4px;">
+          Sınav salonundaki tablet kurallarıyla birebir aynı: Süreli (45 dk), en fazla 10 hata puanı ve iki adet 5 puanlık soru yanlışsa otomatik kalma kuralı.
+        </p>
+
+        <div class="exam-setup-grid">
+          <div class="exam-mode-option selected" data-mode="B" onclick="selectExamMode('B')">
+            <div style="display:flex;justify-content:space-between;align-items:center;">
+              <strong style="font-size:17px;">🚗 Klasse B Sınavı (Otomobil)</strong>
+              <span class="class-rule-pill">30 Soru</span>
+            </div>
+            <div style="font-size:13px;color:var(--muted);">20 Temel (Grundstoff) + 10 Klasse B sorusu</div>
+          </div>
+
+          <div class="exam-mode-option" data-mode="C" onclick="selectExamMode('C')">
+            <div style="display:flex;justify-content:space-between;align-items:center;">
+              <strong style="font-size:17px;">🚛 Klasse C Sınavı (Kamyon)</strong>
+              <span class="class-rule-pill">37 Soru</span>
+            </div>
+            <div style="font-size:13px;color:var(--muted);">10 Temel (Grundstoff) + 27 Klasse C sorusu</div>
+          </div>
+
+          <div class="exam-mode-option" data-mode="CE" onclick="selectExamMode('CE')">
+            <div style="display:flex;justify-content:space-between;align-items:center;">
+              <strong style="font-size:17px;">🚚 Klasse CE Sınavı (Tır)</strong>
+              <span class="class-rule-pill">30 Soru</span>
+            </div>
+            <div style="font-size:13px;color:var(--muted);">10 Temel (Grundstoff) + 20 Klasse CE sorusu</div>
+          </div>
+
+          <div class="exam-mode-option" data-mode="COMBO" onclick="selectExamMode('COMBO')">
+            <div style="display:flex;justify-content:space-between;align-items:center;">
+              <strong style="font-size:17px;color:#fde68a;">🏆 B ➔ C ➔ CE Kombo Oturum (Gerçek Salon)</strong>
+              <span class="gold-badge">24,99 € Tek Oturum</span>
+            </div>
+            <div style="font-size:13px;color:var(--muted);">
+              Önce B (30), geçersen C (37), onu da geçersen CE (30) sınavına sırayla girersin!
+            </div>
+          </div>
+
+          <div class="exam-mode-option" data-mode="KOD95" onclick="selectExamMode('KOD95')" style="grid-column: 1 / -1; border-color: rgba(245,158,11,0.45);">
+            <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
+              <strong style="font-size:17px;color:#38bdf8;">🎓 Kod 95 (IHK LKW Güterkraftverkehr) Resmi Sınav Simülasyonu</strong>
+              <span class="gold-badge">90 Dakika • %50 Geçme Barajı</span>
+            </div>
+            <div style="font-size:13px;color:var(--muted);">
+              IHK BKrFQG mevzuatına göre Bölüm 1 (Teknik & Yük), Bölüm 2 (Takograf & Sürüş Süreleri) ve Bölüm 3 (Sağlık & Lojistik) havuzundan 50 soru (~60 puan). En az %50 puan alan sınavı geçer!
+            </div>
+          </div>
+        </div>
+
+        <div style="margin-top:20px;display:flex;gap:12px;flex-wrap:wrap;align-items:center;">
+          <button class="btn btn-gold" style="padding:14px 24px;font-size:15px;" onclick="startSelectedExam(false)">
+            🚀 Normal Sınav Başlat
+          </button>
+          <button class="btn btn-primary" style="padding:14px 24px;font-size:15px;" onclick="startSelectedExam(true)" title="Hiç çözmediğin ve yanlış yaptığın sorulara öncelik vererek resmi sınav kurar">
+            🧠 Zeki Sınav Başlat (Eksik Odaklı)
+          </button>
+          <button class="btn btn-outline" style="padding:14px 20px;font-size:14px;border-color:#ef4444;color:#fca5a5;" onclick="startMistakesExam()">
+            ⚡ Sadece Hatalarımdan Sınav Yap
+          </button>
+        </div>
+      </div>
+
+      <!-- Active Exam Tablet View -->
+      <div id="exam-active-view" class="tuv-tablet-frame" style="display:none;">
+        <div class="tuv-header">
+          <div class="tuv-header-left">
+            <span class="tuv-badge">TÜV | DEKRA</span>
+            <div>
+              <div id="exam-stage-title" style="font-weight:800;font-size:15px;">Klasse B Teorik Sınavı</div>
+              <div id="exam-progress-sub" style="font-size:12px;color:#bae6fd;">Soru 1 / 30 • Cevaplanan: 0</div>
+            </div>
+          </div>
+
+          <div style="display:flex;align-items:center;gap:10px;">
+            <div id="exam-timer" class="tuv-timer">45:00</div>
+            <button class="btn btn-gold" style="padding:8px 14px;font-size:13px;" onclick="confirmFinishExam()">
+              🏁 Sınavı Bitir
+            </button>
+          </div>
+        </div>
+
+        <div id="exam-question-body" class="tuv-body"></div>
+
+        <div class="tuv-sheet-bar">
+          <div style="display:flex;justify-content:space-between;align-items:center;font-size:12px;color:var(--muted);">
+            <span>Soru Gezgini (Yeşil: Cevaplandı, Sarı: İşaretlendi)</span>
+            <div style="display:flex;gap:8px;">
+              <button class="btn btn-outline" style="padding:7px 14px;font-size:13px;" onclick="stepExamQuestion(-1)">← Önceki</button>
+              <button class="btn btn-primary" style="padding:7px 14px;font-size:13px;" onclick="stepExamQuestion(1)">Sonraki →</button>
+            </div>
+          </div>
+          <div id="exam-pills-grid" class="tuv-q-pills"></div>
+        </div>
+      </div>
+
+      <!-- Exam Result View -->
+      <div id="exam-result-view" style="display:none;"></div>
+    </section>
+
+    <!-- ═══════════════════════════════════════════════════════════
+         VIEW 4: CHEATSHEET (FORMÜLLER, KAMYON/TIR KURALLARI & SÖZLÜK)
+    ════════════════════════════════════════════════════════════ -->
+    <section id="view-cheatsheet" class="view-section">
+      <div class="card" style="margin-bottom:16px;">
+        <h2 style="font-size:21px;font-weight:800;">📐 Sınavda Çıkan Sayısal Formüller & İnteraktif Hesaplayıcı</h2>
+        <p style="font-size:13px;color:var(--muted);margin-top:4px;">
+          Sayısal girişli (62 adet) sorunun tamamı bu 4 temel formül üzerinden sorulur:
+        </p>
+
+        <div class="formula-grid">
+          <div class="formula-card">
+            <strong style="color:#38bdf8;">1. Reaksiyon Mesafesi (Reaktionsweg)</strong>
+            <div class="formula-eq">(Hız ÷ 10) × 3 = metre</div>
+            <p style="font-size:12px;color:var(--muted);">Örnek: 50 km/s hızda ➔ (50÷10)×3 = <b>15 metre</b> (1 saniyede alınan yol).</p>
+          </div>
+
+          <div class="formula-card">
+            <strong style="color:#fde68a;">2. Normal Fren Mesafesi (Bremsweg)</strong>
+            <div class="formula-eq">(Hız ÷ 10) × (Hız ÷ 10) = metre</div>
+            <p style="font-size:12px;color:var(--muted);">Örnek: 50 km/s hızda ➔ 5 × 5 = <b>25 metre</b>. (Hız 2 katına çıkarsa fren mesafesi 4 katına çıkar!)</p>
+          </div>
+
+          <div class="formula-card">
+            <strong style="color:#fca5a5;">3. Tehlike Freni (Gefahrbremsung)</strong>
+            <div class="formula-eq">Normal Fren Mesafesi ÷ 2</div>
+            <p style="font-size:12px;color:var(--muted);">Örnek: 50 km/s hızda ➔ 25 ÷ 2 = <b>12,5 metre</b>.</p>
+          </div>
+
+          <div class="formula-card">
+            <strong style="color:#4ade80;">4. Duruş Mesafesi (Anhalteweg)</strong>
+            <div class="formula-eq">Reaksiyon Mesafesi + Fren Mesafesi</div>
+            <p style="font-size:12px;color:var(--muted);">Örnek: 50 km/s hızda ➔ 15 + 25 = <b>40 metre</b>.</p>
+          </div>
+        </div>
+
+        <!-- Canlı Hesaplayıcı -->
+        <div style="margin-top:16px;background:var(--bg);border:1px solid var(--border-light);border-radius:12px;padding:16px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:14px;">
+          <div style="display:flex;align-items:center;gap:10px;">
+            <label style="font-weight:800;font-size:14px;">⚡ Canlı Hız Testi (km/s):</label>
+            <input id="calc-speed-inp" type="number" value="50" min="10" max="200" step="10" class="input-control" style="width:100px;font-size:18px;font-weight:800;text-align:center;" oninput="updateFormulaCalc()" />
+          </div>
+          <div id="calc-speed-results" style="display:flex;gap:16px;flex-wrap:wrap;font-size:13px;"></div>
+        </div>
+      </div>
+
+      <!-- C ve CE Ağır Vasıta Kritik Özet Tablosu -->
+      <div class="card" style="margin-bottom:16px;">
+        <h2 style="font-size:20px;font-weight:800;">🚛 Klasse C & CE (Kamyon / Tır) Hayati Rakamlar Özeti</h2>
+        <div class="table-scroll-wrap">
+        <table class="dict-table">
+          <thead>
+            <tr>
+              <th>Kural / Durum</th>
+              <th>3,5t – 7,5t Arası Kamyon/Katar</th>
+              <th>7,5 Ton Üzeri Kamyon / CE Tır</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><b>Yerleşim Yeri Dışı (Landstraße) Maks. Hız</b></td>
+              <td><b>80 km/s</b></td>
+              <td><b>60 km/s</b></td>
+            </tr>
+            <tr>
+              <td><b>Otoyol (Autobahn) Maks. Hız</b></td>
+              <td><b>80 km/s</b></td>
+              <td><b>80 km/s</b></td>
+            </tr>
+            <tr>
+              <td><b>Otoyolda Minimum Takip Mesafesi</b></td>
+              <td>50 km/s hızın üzerinde en az <b>50 metre</b></td>
+              <td>50 km/s hızın üzerinde en az <b>50 metre</b></td>
+            </tr>
+            <tr>
+              <td><b>Görüş Mesafesi &lt; 50m (Sis/Kar/Yağmur)</b></td>
+              <td>Maks. <b>50 km/s</b> + Sollama YASAK</td>
+              <td>Maks. <b>50 km/s</b> + Sollama YASAK</td>
+            </tr>
+            <tr>
+              <td><b>Pazar & Resmi Tatil Sürüş Yasağı (Sonntagsfahrverbot)</b></td>
+              <td>Ticari römork takılıysa <b>00:00 – 22:00</b> yasak</td>
+              <td>7,5t üstü tüm ticari kamyonlara <b>00:00 – 22:00</b> yasak</td>
+            </tr>
+            <tr>
+              <td><b>Takograf (Sürüş & Mola Süreleri)</b></td>
+              <td>4,5 saat sürüş sonrası <b>45 dk mola</b> (15+30 dk bölünebilir)</td>
+              <td>Günlük maks. <b>9 saat</b> (haftada 2 kez 10 saat)</td>
+            </tr>
+          </tbody>
+        </table>
+        </div>
+      </div>
+
+      <!-- Almanca - Türkçe Kritik Terimler Sözlüğü -->
+      <div class="card" style="margin-bottom:16px;">
+        <h2 style="font-size:20px;font-weight:800;">🇩🇪 🇹🇷 Sınavda En Çok Çıkan Almanca Anahtar Kelimeler</h2>
+        <div class="table-scroll-wrap">
+        <table class="dict-table">
+          <thead>
+            <tr>
+              <th>Almanca Terim</th>
+              <th>Türkçe Karşılığı</th>
+              <th>Sınav İpucu (Nerede Çıkar?)</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr><td><b>Grundstoff / Zusatzstoff</b></td><td>Temel Bilgiler / Sınıfa Özel Ek Sorular</td><td>Her sınavda temel + sınıfa özel soru birleşir</td></tr>
+            <tr><td><b>Vorfahrt / Vorrang</b></td><td>Geçiş Üstünlüğü / Öncelik Hakkı</td><td>Kavşak sorularında (5 Puanlık sorular!)</td></tr>
+            <tr><td><b>Rechts vor links</b></td><td>Sağdan gelen soldan gelenden önce geçer</td><td>Tabelasız ve ışıksız eşdeğer kavşaklar</td></tr>
+            <tr><td><b>Abknickende Vorfahrtstraße</b></td><td>Kıvrılan (Yön Değiştiren) Ana Yol</td><td>Ana yoldan ayrılırken sinyal vermek zorunludur</td></tr>
+            <tr><td><b>Zulässige Gesamtmasse (zGM)</b></td><td>İzin Verilen Azami Yüklü Ağırlık</td><td>Kamyon tabelalarında tonaj sınırını belirler</td></tr>
+            <tr><td><b>Tatsächliche Masse</b></td><td>Gerçek (O Anki Tartılan) Ağırlık</td><td>Köprü üstü veya kırmızı yuvarlak içinde "5,5t" levhası</td></tr>
+            <tr><td><b>Stützlast / Achslast</b></td><td>Çeki Demiri Dikey Yükü / Dingil Ağırlığı</td><td>CE römork ve yükleme sorularında sık çıkar</td></tr>
+            <tr><td><b>Unterfahrschutz / Vorstechende Ladung</b></td><td>Arkadan Çarpma Koruması / Taşan Yük</td><td>Yük arkadan 1m'den fazla taşarsa kırmızı bayrak/ışık</td></tr>
+            <tr><td><b>Druckluftbremsanlage</b></td><td>Havalı Fren Sistemi (Kamyon/Tır)</td><td>Vorrat (Besleme - Kırmızı) ve Bremsleitung (Sarı)</td></tr>
+          </tbody>
+        </table>
+        </div>
+      </div>
+
+      <!-- Görsel Trafik Levhaları & Kamyon Göstergeleri Flashcard Galerisi -->
+      <div class="card">
+        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;">
+          <div>
+            <h2 style="font-size:20px;font-weight:800;">🪧 Görsel Trafik Levhaları & Kamyon Göstergeleri Kartları (120 Kart)</h2>
+            <p style="font-size:13px;color:var(--muted);">Kartın üzerine tıklayarak cevabını açıp kapatabilir veya doğrudan o soruya gidebilirsin.</p>
+          </div>
+          <input id="sign-search-inp" type="search" class="input-control" style="max-width:260px;" placeholder="Levha veya kelime ara..." oninput="renderSignFlashcards()" />
+        </div>
+        <div id="sign-flashcards-grid" class="formula-grid" style="margin-top:14px;"></div>
+      </div>
+    </section>
+
+    <!-- ═══════════════════════════════════════════════════════════
+         VIEW 5: STATS, CLOUD DEPLOY & DATA BACKUP
+    ════════════════════════════════════════════════════════════ -->
+    <section id="view-stats" class="view-section">
+      <!-- Cloud & Mobile Access Card -->
+      <div class="card" style="margin-bottom:16px;border-color:#0284c7;background:linear-gradient(135deg, rgba(14,165,233,0.12), rgba(15,23,42,0.95));">
+        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:16px;">
+          <div style="flex:1;min-width:260px;">
+            <h2 style="font-size:20px;font-weight:800;color:#38bdf8;">☁️ Telefonundan & Her Yerden Ücretsiz Erişim</h2>
+            <p style="font-size:13px;color:#cbd5e1;margin-top:6px;">
+              <b>1) Evde Wi-Fi Üzerinden (Anında):</b> Telefonunun kamerasını sağdaki QR koda tut veya tarayıcıya <code style="color:#fde68a;">http://192.168.1.7:8090</code> yaz.<br/>
+              <b>2) Otobüste / Dışarıda (Bilgisayar Kapalıyken 7/24 Bulut):</b> Klasördeki <code>BULUTA_YUKLE.bat</code> dosyasına tıklayarak veya klasörü <b>app.netlify.com/drop</b> ekranına sürükleyip bırakarak 10 saniyede kalıcı ücretsiz internet adresine (<code>https://...</code>) çevirebilirsin!
+            </p>
+          </div>
+          <div style="background:#fff;padding:10px;border-radius:12px;text-align:center;">
+            <img src="https://api.qrserver.com/v1/create-qr-code/?size=120x120&data=https://neonlogiclabs.github.io/almanya-ehliyet-2026/" width="110" height="110" alt="Mobil QR" style="display:block;" onerror="this.style.display='none'" />
+            <div style="color:#090d16;font-size:10px;font-weight:800;margin-top:4px;">Telefondan Okut (7/24)</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card" style="margin-bottom:16px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;">
+          <div>
+            <h2 style="font-size:20px;font-weight:800;">📊 Leitner Kutu Sistemi & Sınıflara Göre İlerlemen</h2>
+            <p style="font-size:13px;color:var(--muted);">Bir soruyu <b>3 kez üst üste doğru</b> yaptığında 🟩 Tam Öğrenildi (Kutu 3) statüsüne geçer.</p>
+          </div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;">
+            <button class="btn btn-outline" onclick="exportProgressData()">💾 İlerlememi Yedekle (JSON)</button>
+            <button class="btn btn-outline" onclick="triggerImportProgress()">📂 Yedek Yükle</button>
+            <input id="import-file-input" type="file" accept=".json" style="display:none" onchange="importProgressData(event)" />
+            <button class="btn btn-outline" style="color:#fca5a5;border-color:#7f1d1d;" onclick="resetAllProgress()">🗑️ Sıfırla</button>
+            <button class="btn btn-outline" onclick="kilitCikis()" title="Bu cihazda kilidi kapatır; tekrar açmak için şifre gerekir. İlerleme silinmez.">🚪 Kilidi Kapat</button>
+          </div>
+        </div>
+
+        <div id="stats-breakdown-container" style="margin-top:18px;"></div>
+      </div>
+
+      <div class="card">
+        <h3 style="font-size:17px;font-weight:800;margin-bottom:12px;">📝 Son Deneme Sınavı Geçmişin</h3>
+        <div id="exam-history-list"></div>
+      </div>
+    </section>
+  </div>
+
+  <!-- ── MOBILE BOTTOM NAVIGATION ── -->
+  <nav class="bottom-nav">
+    <button class="bottom-nav-btn active" data-view="dashboard" onclick="switchView('dashboard')">
+      <span class="ico">🏠</span>
+      <span>Ana Ekran</span>
+    </button>
+    <button class="bottom-nav-btn" data-view="study" onclick="switchView('study')">
+      <span class="ico">📚</span>
+      <span>Çalış</span>
+    </button>
+    <button class="bottom-nav-btn" data-view="exam" onclick="switchView('exam')">
+      <span class="ico">🖥️</span>
+      <span>Sınav</span>
+    </button>
+    <button class="bottom-nav-btn" data-view="cheatsheet" onclick="switchView('cheatsheet')">
+      <span class="ico">📐</span>
+      <span>Rehber</span>
+    </button>
+    <button class="bottom-nav-btn" data-view="stats" onclick="switchView('stats')">
+      <span class="ico">📊</span>
+      <span>Mobil/İst.</span>
+    </button>
+  </nav>
+
+  <!-- ── IMAGE LIGHTBOX MODAL ── -->
+  <div id="lightbox-modal" class="lightbox-modal" onclick="closeLightbox()">
+    <img id="lightbox-img" src="" alt="Büyük Görsel" />
+  </div>
+
+  <!-- kilit.js: şifreli soruları çözer, sonra app.js'i yükler (yerel kaynak klasöründe düz dosyaları yükler). -->
+  <script src="kilit.js?v=15"></script>
+</body>
+</html>
