@@ -11,7 +11,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600;700&family=Geist+Mono:wght@400;500&display=swap" />
-  <link rel="stylesheet" href="styles.css?v=24" />
+  <link rel="stylesheet" href="styles.css?v=25" />
   <script>try{var t=localStorage.getItem("FAHRSCHULE_TEMA");if(t==="acik"||t==="koyu")document.documentElement.dataset.tema=t;}catch(e){}</script>
 </head>
 <body>
@@ -107,6 +107,7 @@
         <button class="cip" onclick="filterCriticalFivePoints()">🔥 5 puanlıklar</button>
         <button id="dash-trap-btn" class="cip" onclick="filterTrapQuestions()">🛑 Tuzak sorular</button>
         <button class="cip" onclick="startMistakesExam()">⚡ Hatalarımdan sınav</button>
+        <button id="dash-senkron-cip" class="cip" onclick="senkronYeriGoster()">📱 Cihazları bağla</button>
       </div>
 
       <h2 class="dash-baslik">Sınıflar</h2>
@@ -482,6 +483,10 @@
          VIEW 5: STATS, CLOUD DEPLOY & DATA BACKUP
     ════════════════════════════════════════════════════════════ -->
     <section id="view-stats" class="view-section">
+      <div class="card senkron-kart" id="senkron-kart" style="margin-bottom:16px;">
+        <h2 style="font-size:20px;font-weight:800;">📱 Cihazlar arası senkron</h2>
+        <div id="senkron-icerik"></div>
+      </div>
       <!-- Cloud & Mobile Access Card -->
       <div class="card" style="margin-bottom:16px;border-color:var(--primary-hover);background:linear-gradient(135deg, color-mix(in srgb, var(--primary) 12%, transparent), color-mix(in srgb, var(--panel) 95%, transparent));">
         <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:16px;">
@@ -554,6 +559,6 @@
   </div>
 
   <!-- kilit.js: şifreli soruları çözer, sonra app.js'i yükler (yerel kaynak klasöründe düz dosyaları yükler). -->
-  <script src="kilit.js?v=24"></script>
+  <script src="kilit.js?v=25"></script>
 </body>
 </html>

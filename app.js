@@ -182,6 +182,7 @@ function saveProgress() {
   } catch (e) {
     console.warn('Progress save error:', e);
   }
+  try { senkronKirlet(); } catch (_) { /* senkron bölümü henüz yüklenmediyse */ }
 }
 
 // ── Leitner Mastery Helpers (3-Streak System) ────────────────────────────
@@ -2076,3 +2077,363 @@ function esc(s) {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;');
 }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   CİHAZLAR ARASI SENKRON (senkron kodu)
+   - Bir cihaz 12 haneli kod üretir; diğer cihazlara aynı kod girilir.
+   - Koddan HKDF ile iki şey türetilir: sunucudaki kayıt adı (kimlik) ve AES-256-GCM
+     anahtarı. Sunucu yalnız şifreli veri görür; kodu bilmeyen ilerlemeyi okuyamaz.
+   - Her değişiklik birkaç saniye sonra gönderilir; uygulama açılınca / öne gelince çekilir.
+   - Çakışmada (iki cihaz çevrimdışı çalıştıysa) soru bazında en yeni kayıt kazanır.
+═══════════════════════════════════════════════════════════════════════════ */
+const SENKRON_URL = (/^(127\.0\.0\.1|localhost)$/.test(location.hostname) && (() => { try { return localStorage.getItem('SENKRON_TEST_URL'); } catch (_) { return null; } })())
+  || 'https://34-134-47-203.sslip.io/ehliyet-senkron/v1/k/';
+const SENKRON_KEY = 'FAHRSCHULE_SENKRON_V1';
+const SENKRON_ALFABE = '23456789ABCDEFGHJKLMNPQRSTUVWXYZ'; // 32 karakter: 0/1/I/O yok (karışmasın)
+const SENKRON_KOD_UZUNLUK = 12; // 60 bit
+
+let senkron = senkronOku();       // { kod, surum, kirli, son, hata }
+let senkronAnahtarBellek = null;  // { kod, id, anahtar }
+let senkronZamanlayici = null;
+let senkronCalisiyor = false;
+let senkronTekrar = false;
+let senkronUyguluyor = false;     // uzaktan gelen veri yazılırken "kirli" işaretleme
+let senkronDegisiklik = 0;        // gönderim sırasında yeni değişiklik oldu mu?
+let senkronSonCekim = 0;
+
+function senkronOku() {
+  try {
+    const s = JSON.parse(localStorage.getItem(SENKRON_KEY) || 'null');
+    if (s && typeof s.kod === 'string') return { kod: s.kod, surum: s.surum | 0, kirli: !!s.kirli, son: s.son || 0, hata: '' };
+  } catch (_) {}
+  return { kod: '', surum: 0, kirli: false, son: 0, hata: '' };
+}
+function senkronYaz() {
+  try {
+    if (senkron.kod) localStorage.setItem(SENKRON_KEY, JSON.stringify({ kod: senkron.kod, surum: senkron.surum, kirli: senkron.kirli, son: senkron.son }));
+    else localStorage.removeItem(SENKRON_KEY);
+  } catch (_) {}
+}
+
+function senkronKodBicim(kod) { return kod.replace(/(.{4})(?=.)/g, '$1-'); }
+function senkronKodTemizle(girdi) { return String(girdi || '').toUpperCase().replace(/[\s-]/g, ''); }
+function senkronKodGecerli(kod) {
+  return kod.length === SENKRON_KOD_UZUNLUK && [...kod].every(c => SENKRON_ALFABE.includes(c));
+}
+function senkronKodUret() {
+  const r = crypto.getRandomValues(new Uint8Array(SENKRON_KOD_UZUNLUK));
+  return [...r].map(b => SENKRON_ALFABE[b & 31]).join('');
+}
+
+// ── Kripto ──────────────────────────────────────────────────────────────
+async function senkronAnahtarAl() {
+  if (senkronAnahtarBellek && senkronAnahtarBellek.kod === senkron.kod) return senkronAnahtarBellek;
+  const te = new TextEncoder();
+  const temel = await crypto.subtle.importKey('raw', te.encode(senkron.kod), 'HKDF', false, ['deriveBits', 'deriveKey']);
+  const tuz = te.encode('ehliyet-senkron-v1');
+  const idBit = await crypto.subtle.deriveBits({ name: 'HKDF', hash: 'SHA-256', salt: tuz, info: te.encode('kimlik') }, temel, 256);
+  const anahtar = await crypto.subtle.deriveKey({ name: 'HKDF', hash: 'SHA-256', salt: tuz, info: te.encode('anahtar') },
+    temel, { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']);
+  const id = [...new Uint8Array(idBit)].map(b => b.toString(16).padStart(2, '0')).join('');
+  senkronAnahtarBellek = { kod: senkron.kod, id, anahtar };
+  return senkronAnahtarBellek;
+}
+function senkronB64(u8) {
+  let s = '';
+  for (let i = 0; i < u8.length; i += 0x8000) s += String.fromCharCode.apply(null, u8.subarray(i, i + 0x8000));
+  return btoa(s);
+}
+function senkronB64Coz(s) {
+  const bin = atob(s);
+  const u8 = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i);
+  return u8;
+}
+async function senkronAkis(u8, akis) {
+  return new Uint8Array(await new Response(new Blob([u8]).stream().pipeThrough(akis)).arrayBuffer());
+}
+// Biçim: base64( [12 bayt IV][şifreli: 1 bayt bayrak (1=gzip, 0=düz) + JSON] )
+async function senkronSifrele(anahtar, nesne) {
+  let govde = new TextEncoder().encode(JSON.stringify(nesne));
+  let bayrak = 0;
+  if (typeof CompressionStream === 'function') {
+    try { govde = await senkronAkis(govde, new CompressionStream('gzip')); bayrak = 1; } catch (_) {}
+  }
+  const duz = new Uint8Array(govde.length + 1);
+  duz[0] = bayrak; duz.set(govde, 1);
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const ct = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, anahtar, duz));
+  const cikti = new Uint8Array(12 + ct.length);
+  cikti.set(iv); cikti.set(ct, 12);
+  return senkronB64(cikti);
+}
+async function senkronCoz(anahtar, b64) {
+  if (!b64) return null;
+  const u8 = senkronB64Coz(b64);
+  const duz = new Uint8Array(await crypto.subtle.decrypt({ name: 'AES-GCM', iv: u8.slice(0, 12) }, anahtar, u8.slice(12)));
+  let govde = duz.subarray(1);
+  if (duz[0] === 1) {
+    if (typeof DecompressionStream !== 'function') throw new Error('Bu tarayıcı sıkıştırılmış veriyi açamıyor; tarayıcını güncelle.');
+    govde = await senkronAkis(govde, new DecompressionStream('gzip'));
+  }
+  return JSON.parse(new TextDecoder().decode(govde));
+}
+
+// ── Veri paketi, uygulama ve birleştirme ────────────────────────────────
+function senkronPaketi() {
+  return {
+    v: 1,
+    durum: {
+      qStats: state.qStats, starred: state.starred, examHistory: state.examHistory,
+      alwaysShowDE: state.alwaysShowDE, gunluk: state.gunluk || {}, gunlukHedef: state.gunlukHedef
+    },
+    sonKonum: sonKonumOku()
+  };
+}
+function senkronSonKonumAl(uzak) {
+  const k = uzak && uzak.sonKonum;
+  if (!k || typeof k !== 'object' || typeof k.code !== 'string') return;
+  const yerel = sonKonumOku();
+  if (!yerel || (k.ts || 0) > (yerel.ts || 0)) {
+    try { localStorage.setItem(SON_KONUM_KEY, JSON.stringify(k)); } catch (_) {}
+  }
+}
+// Yerelde gönderilmemiş değişiklik yoksa: uzaktaki hali olduğu gibi al (silmeler de gelsin).
+function senkronUygula(uzak) {
+  if (!uzak || !uzak.durum) return;
+  state.qStats = {}; state.starred = {}; state.examHistory = []; state.gunluk = {};
+  sanitizeLoadedState(uzak.durum);
+  senkronSonKonumAl(uzak);
+}
+function senkronSinavZamani(h) {
+  const m = /(\d{1,2})\.(\d{1,2})\.(\d{4})\D+(\d{1,2}):(\d{2})(?::(\d{2}))?/.exec(h && h.date || '');
+  return m ? new Date(+m[3], m[2] - 1, +m[1], +m[4], +m[5], +(m[6] || 0)).getTime() : 0;
+}
+// İki cihaz da çevrimdışı değişiklik yaptıysa: soru bazında en son görülen kazanır.
+function senkronBirlestir(uzak) {
+  if (!uzak || !uzak.durum) return;
+  const u = uzak.durum;
+  if (u.qStats && typeof u.qStats === 'object') {
+    for (const [kod, us] of Object.entries(u.qStats)) {
+      const ys = state.qStats[kod];
+      if (!us || typeof us !== 'object') continue;
+      if (!ys || (us.lastSeen || 0) > (ys.lastSeen || 0)) state.qStats[kod] = us;
+    }
+  }
+  if (u.starred && typeof u.starred === 'object') {
+    for (const [kod, v] of Object.entries(u.starred)) if (v) state.starred[kod] = true;
+  }
+  if (Array.isArray(u.examHistory)) {
+    const anahtar = h => [h.date, h.mode, h.correctCount, h.total].join('|');
+    const var_ = new Set(state.examHistory.map(anahtar));
+    const tum = state.examHistory.concat(u.examHistory.filter(h => h && !var_.has(anahtar(h))));
+    tum.sort((a, b) => senkronSinavZamani(b) - senkronSinavZamani(a));
+    state.examHistory = tum.slice(0, 30);
+  }
+  if (u.gunluk && typeof u.gunluk === 'object') {
+    if (!state.gunluk || typeof state.gunluk !== 'object') state.gunluk = {};
+    for (const [gun, n] of Object.entries(u.gunluk)) {
+      if (typeof n === 'number' && n > (state.gunluk[gun] || 0)) state.gunluk[gun] = n;
+    }
+  }
+  senkronSonKonumAl(uzak);
+}
+function senkronYenidenCiz() {
+  try { refreshDashboard(); } catch (_) {}
+  try { updateGlobalDEButton(); } catch (_) {}
+  try { updateDynamicCounts(); } catch (_) {}
+  try { if (document.getElementById('view-stats')?.classList.contains('active')) renderStatsView(); } catch (_) {}
+  try { if (document.getElementById('view-study')?.classList.contains('active')) renderStudySidebarList(); } catch (_) {}
+}
+function senkronDurumuKaydet() {
+  senkronUyguluyor = true;
+  try { saveProgress(); } finally { senkronUyguluyor = false; }
+}
+
+// saveProgress her çağrıldığında
+function senkronKirlet() {
+  if (!senkron.kod || senkronUyguluyor) return;
+  senkronDegisiklik++;
+  if (!senkron.kirli) { senkron.kirli = true; senkronYaz(); }
+  clearTimeout(senkronZamanlayici);
+  senkronZamanlayici = setTimeout(senkronCalistir, 2500);
+  senkronArayuz();
+}
+
+// ── Ana döngü: çek → (birleştir) → gönder ───────────────────────────────
+async function senkronCalistir() {
+  if (!senkron.kod) return;
+  if (senkronCalisiyor) { senkronTekrar = true; return; }
+  senkronCalisiyor = true;
+  clearTimeout(senkronZamanlayici);
+  senkronArayuz('calisiyor');
+  try {
+    const { id, anahtar } = await senkronAnahtarAl();
+    const r = await fetch(SENKRON_URL + id, { cache: 'no-store' });
+    let uzak = null;
+    if (r.status === 200) uzak = await r.json();
+    else if (r.status !== 404) throw new Error('Sunucu yanıtı ' + r.status);
+    senkronSonCekim = Date.now();
+    if (!uzak && senkron.surum > 0) { senkron.surum = 0; senkron.kirli = true; } // sunucudaki kayıt kaybolduysa yeniden yükle
+
+    for (let deneme = 0; deneme < 5; deneme++) {
+      if (uzak && uzak.surum !== senkron.surum) {
+        const veri = await senkronCoz(anahtar, uzak.veri);
+        if (veri) {
+          if (senkron.kirli) senkronBirlestir(veri); else senkronUygula(veri);
+          senkronDurumuKaydet();
+          senkronYenidenCiz();
+        }
+        senkron.surum = uzak.surum;
+        senkronYaz();
+      }
+      if (!senkron.kirli) break;
+      const anlik = senkronDegisiklik;
+      const veri = await senkronSifrele(anahtar, senkronPaketi());
+      const p = await fetch(SENKRON_URL + id, {
+        method: 'PUT', cache: 'no-store',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ onceki: senkron.surum, veri })
+      });
+      if (p.status === 200) {
+        senkron.surum = (await p.json()).surum;
+        senkron.kirli = senkronDegisiklik !== anlik; // gönderim sırasında yeni değişiklik olduysa yine gönder
+        senkronYaz();
+        if (senkron.kirli) senkronTekrar = true;
+        break;
+      }
+      if (p.status === 409) { uzak = await p.json(); continue; }
+      throw new Error('Sunucu yanıtı ' + p.status);
+    }
+    senkron.son = Date.now();
+    senkron.hata = '';
+    senkronYaz();
+  } catch (e) {
+    senkron.hata = (e && e.name === 'OperationError')
+      ? 'Kod bu kayıtla eşleşmedi.'
+      : (navigator.onLine === false ? 'Çevrimdışı — internet gelince eşitlenecek.' : 'Eşitlenemedi, birazdan yeniden denenecek.');
+    if (senkron.kirli) { clearTimeout(senkronZamanlayici); senkronZamanlayici = setTimeout(senkronCalistir, 30000); }
+  } finally {
+    senkronCalisiyor = false;
+    senkronArayuz();
+    if (senkronTekrar) { senkronTekrar = false; senkronCalistir(); }
+  }
+}
+
+// ── Kullanıcı eylemleri ─────────────────────────────────────────────────
+function senkronBaslat() {
+  if (!(window.crypto && crypto.subtle)) { alert('Bu tarayıcı senkronu desteklemiyor.'); return; }
+  senkron = { kod: senkronKodUret(), surum: 0, kirli: true, son: 0, hata: '' };
+  senkronAnahtarBellek = null;
+  senkronYaz();
+  senkronArayuz();
+  senkronCalistir();
+}
+async function senkronKodlaBaglan() {
+  const kutu = document.getElementById('senkron-kod-girdi');
+  const kod = senkronKodTemizle(kutu && kutu.value);
+  if (!senkronKodGecerli(kod)) { senkronArayuz('', 'Kod 12 karakter olmalı (ör. ABCD-EFGH-2345).'); return; }
+  const yereldeVar = Object.keys(state.qStats).length > 0 || Object.keys(state.starred).length > 0 || state.examHistory.length > 0;
+  senkron = { kod, surum: 0, kirli: false, son: 0, hata: '' };
+  senkronAnahtarBellek = null;
+  senkronArayuz('calisiyor');
+  try {
+    const { id, anahtar } = await senkronAnahtarAl();
+    const r = await fetch(SENKRON_URL + id, { cache: 'no-store' });
+    if (r.status === 404) { senkron = senkronOku(); senkronArayuz('', 'Bu kodla kayıt bulunamadı. Kodu diğer cihazdaki gibi yazdığından emin ol.'); return; }
+    if (r.status !== 200) throw new Error('Sunucu yanıtı ' + r.status);
+    const uzak = await r.json();
+    await senkronCoz(anahtar, uzak.veri); // kod doğru mu? (yanlışsa burada hata verir)
+  } catch (e) {
+    senkron = senkronOku();
+    senkronArayuz('', navigator.onLine === false ? 'İnternet bağlantısı yok.' : 'Bağlanılamadı. Kodu kontrol edip tekrar dene.');
+    return;
+  }
+  // Bu cihazda da ilerleme varsa ikisi birleştirilir; yoksa diğer cihazdaki ilerleme aynen gelir.
+  senkron.kirli = yereldeVar;
+  senkronYaz();
+  await senkronCalistir();
+}
+function senkronKapat() {
+  if (!confirm('Bu cihazda senkron kapatılsın mı? Bu cihazdaki ilerleme kalır ama artık diğer cihazlarla eşitlenmez.')) return;
+  senkron = { kod: '', surum: 0, kirli: false, son: 0, hata: '' };
+  senkronAnahtarBellek = null;
+  senkronYaz();
+  senkronArayuz();
+}
+function senkronKodKopyala() {
+  const metin = senkronKodBicim(senkron.kod);
+  const bitti = () => senkronArayuz('', 'Kod kopyalandı.');
+  if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(metin).then(bitti, () => prompt('Kodu kopyala:', metin));
+  else prompt('Kodu kopyala:', metin);
+}
+function senkronYeriGoster() {
+  switchView('stats');
+  setTimeout(() => document.getElementById('senkron-kart')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 60);
+}
+
+// ── Arayüz ──────────────────────────────────────────────────────────────
+function senkronSaat(ts) {
+  return ts ? new Date(ts).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' }) : '';
+}
+function senkronArayuz(durum = '', mesaj = '') {
+  const cip = document.getElementById('dash-senkron-cip');
+  if (cip) cip.textContent = senkron.kod ? (senkron.hata ? '⚠️ Senkron bekliyor' : '☁️ Senkron açık') : '📱 Cihazları bağla';
+
+  const kap = document.getElementById('senkron-icerik');
+  if (!kap) return;
+  if (!senkron.kod) {
+    if (durum === 'calisiyor') { kap.innerHTML = '<p class="senkron-durum">⏳ Bağlanıyor...</p>'; return; }
+    const eskiGirdi = document.getElementById('senkron-kod-girdi')?.value || '';
+    kap.innerHTML = `
+      <p class="senkron-aciklama">PC, telefon ve tablette aynı ilerlemeyi görmek için cihazları tek bir kodla bağla. Hesap ya da e-posta gerekmez.</p>
+      <div class="senkron-secenek">
+        <strong>İlk cihaz mı?</strong>
+        <button class="btn btn-primary" type="button" onclick="senkronBaslat()">Senkron kodu oluştur</button>
+      </div>
+      <div class="senkron-secenek">
+        <strong>Başka cihazda kodun var mı?</strong>
+        <div class="senkron-giris">
+          <input id="senkron-kod-girdi" class="senkron-girdi" type="text" inputmode="text" autocomplete="off" autocapitalize="characters" spellcheck="false"
+            placeholder="ABCD-EFGH-2345" maxlength="14" value="${esc(eskiGirdi)}" onkeydown="if(event.key==='Enter')senkronKodlaBaglan()" />
+          <button class="btn btn-outline" type="button" onclick="senkronKodlaBaglan()">Bağlan</button>
+        </div>
+      </div>
+      ${mesaj ? `<p class="senkron-mesaj" role="status">${esc(mesaj)}</p>` : ''}`;
+    return;
+  }
+  let satir;
+  if (durum === 'calisiyor' || senkronCalisiyor) satir = '⏳ Eşitleniyor...';
+  else if (senkron.hata) satir = '⚠️ ' + senkron.hata;
+  else if (senkron.kirli) satir = '⏳ Değişiklikler gönderilecek...';
+  else if (senkron.son) satir = '✅ Eşit — son eşitleme ' + senkronSaat(senkron.son);
+  else satir = '⏳ Eşitleniyor...';
+  kap.innerHTML = `
+    <p class="senkron-aciklama">Bu kodu diğer cihazında <b>İstatistik → Cihazlar arası senkron</b> bölümüne yaz. Kodu kimseyle paylaşma: kodu bilen ilerlemeni görebilir.</p>
+    <div class="senkron-kod" aria-label="Senkron kodu">${esc(senkronKodBicim(senkron.kod))}</div>
+    <p class="senkron-durum" role="status">${esc(satir)}</p>
+    <div class="senkron-dugmeler">
+      <button class="btn btn-outline" type="button" onclick="senkronKodKopyala()">Kodu kopyala</button>
+      <button class="btn btn-outline" type="button" onclick="senkronCalistir()">Şimdi eşitle</button>
+      <button class="btn btn-outline" type="button" onclick="senkronKapat()">Bu cihazda kapat</button>
+    </div>
+    ${mesaj ? `<p class="senkron-mesaj" role="status">${esc(mesaj)}</p>` : ''}`;
+}
+
+// ── Başlangıç ───────────────────────────────────────────────────────────
+onAppReady(() => {
+  senkronArayuz();
+  if (senkron.kod) senkronCalistir();
+  document.addEventListener('visibilitychange', () => {
+    if (!senkron.kod) return;
+    if (document.visibilityState === 'visible') {
+      if (Date.now() - senkronSonCekim > 15000 || senkron.kirli) senkronCalistir();
+    } else if (senkron.kirli) {
+      senkronCalistir(); // sekme kapanmadan önce bekleyen değişiklikleri gönder
+    }
+  });
+  window.addEventListener('online', () => { if (senkron.kod) senkronCalistir(); });
+  window.addEventListener('focus', () => {
+    if (senkron.kod && Date.now() - senkronSonCekim > 15000) senkronCalistir();
+  });
+});

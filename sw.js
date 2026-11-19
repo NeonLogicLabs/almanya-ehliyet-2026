@@ -1,4 +1,4 @@
-const CACHE_NAME = 'fahrschule-gold-v24';
+const CACHE_NAME = 'fahrschule-gold-v25';
 // Uygulama kabuğu. Şifreli yayında questions_full.js yoktur (yerine sifreli/sorular.bin);
 // bu yüzden dosyalar tek tek ve hata yutularak önbelleğe alınır.
 const CORE_ASSETS = [
@@ -139,6 +139,9 @@ self.addEventListener('fetch', event => {
     event.respondWith(medyaIstegi(req, ad));
     return;
   }
+
+  // Başka sitelere giden istekler (ör. senkron sunucusu) SW'ye uğramadan doğrudan gitsin.
+  if (url.origin !== self.location.origin) return;
 
   // Uygulama kabuğu: önce ağ (güncellemeler hemen gelsin), ağ yoksa önbellek.
   event.respondWith(
