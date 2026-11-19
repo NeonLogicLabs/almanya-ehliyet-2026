@@ -1869,3 +1869,19 @@ button, input, select, textarea { font-family: inherit; }
 .senkron-durum { font-size: 13.5px; font-weight: 600; margin: 12px 0 4px; }
 .senkron-dugmeler { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
 .senkron-mesaj { font-size: 13px; font-weight: 600; color: var(--primary); margin-top: 10px; }
+
+/* ── Üst çubuk sığdırma: menü sekmeleri asla kesilmesin ───────────────
+   Yer daralınca önce marka alt yazısı, sonra düğme yazıları, en son marka adı kısalır. */
+@media (min-width: 961px) {
+  .nav-tabs { flex-shrink: 0; overflow: visible; }
+  .brand { flex: 1 1 0; min-width: 38px; }
+}
+@media (min-width: 961px) and (max-width: 1440px) {
+  .brand-sub { display: none; }
+}
+@media (min-width: 961px) and (max-width: 1200px) {
+  .topbar-actions .hide-xs { display: none; }
+  .brand-text-wrap { display: none; }
+  .brand { flex: 0 0 auto; }
+  .nav-tab { padding: 8px 10px; }
+}
