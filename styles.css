@@ -1885,3 +1885,31 @@ button, input, select, textarea { font-family: inherit; }
   .brand { flex: 0 0 auto; }
   .nav-tab { padding: 8px 10px; }
 }
+
+/* Resimli şıklar (levha seçenekleri) */
+.option-img { display: block; width: min(150px, 42vw); height: auto; border-radius: 12px; background: #fff;
+  border: 1px solid var(--hair, var(--border)); margin: 2px 0; }
+.class-konum { font-size: 12.5px; font-weight: 600; color: var(--accent-ink, var(--primary)); margin: -2px 0 0; min-height: 0; }
+.class-konum:empty { display: none; }
+
+/* ── Büyük görsel: yakınlaştırılabilir (v27) ── */
+.lightbox-modal { padding: 0; flex-direction: column; }
+.lightbox-sahne { position: relative; flex: 1; width: 100%; display: flex; align-items: center; justify-content: center; overflow: hidden; touch-action: none; }
+.lightbox-modal img#lightbox-img { max-width: 100vw; max-height: calc(100dvh - 90px); border-radius: 0; transform-origin: center center;
+  touch-action: none; user-select: none; -webkit-user-select: none; will-change: transform; cursor: zoom-in; }
+.lightbox-kapat { position: absolute; top: calc(10px + env(safe-area-inset-top, 0px)); right: 12px; z-index: 2; width: 46px; height: 46px; border-radius: 999px;
+  border: 1px solid rgba(255,255,255,.35); background: rgba(0,0,0,.55); color: #fff; font-size: 20px; cursor: pointer; }
+.lightbox-ipucu { color: rgba(255,255,255,.75); font-size: 12.5px; text-align: center; padding: 10px 16px calc(12px + env(safe-area-inset-bottom, 0px)); }
+/* Soru görselleri telefonda da büyük dursun */
+@media (max-width: 700px) { .q-media-box img { max-height: 55vh; } }
+/* Şık görseli + büyüteç */
+.option-img-kap { position: relative; display: inline-block; }
+.sik-buyut { position: absolute; right: 6px; bottom: 6px; width: 34px; height: 34px; border-radius: 999px; border: 1px solid var(--border);
+  background: var(--card-solid, #fff); font-size: 15px; cursor: pointer; display: grid; place-items: center; }
+
+/* Sade Türkçe anlatım (resmi metnin altında) */
+.q-sade { margin: 8px 0 4px; padding: 10px 14px; border-radius: 14px; font-size: 15px; line-height: 1.5;
+  background: color-mix(in srgb, var(--primary) 9%, transparent); border: 1px solid color-mix(in srgb, var(--primary) 22%, transparent); }
+.q-sade-etiket { display: inline-block; margin-right: 8px; padding: 1px 8px; border-radius: 999px; font-size: 11px; font-weight: 700;
+  letter-spacing: .04em; text-transform: uppercase; background: var(--primary); color: var(--cta-ink, #fff); vertical-align: 1px; }
+.option-sade { font-size: 13px; color: var(--muted); line-height: 1.45; margin-top: 3px; }

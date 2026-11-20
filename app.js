@@ -343,6 +343,7 @@ function speakCurrentQuestion() {
 // ── Dashboard Logic ──────────────────────────────────────────────────────
 function refreshDashboard() {
   renderDashUst();
+  sinifKonumlariniGoster();
   const total = DB.length;
   let learned = 0;
   let learning = 0;
@@ -380,6 +381,8 @@ function refreshDashboard() {
 
 function openClassStudy(clsName) {
   document.getElementById('study-class-filter').value = clsName;
+  const tur = document.getElementById('study-type-filter'); if (tur) tur.value = 'ALL';
+  const ara = document.getElementById('study-search'); if (ara) ara.value = '';
   document.getElementById('study-status-filter').value = 'ALL';
   document.getElementById('study-points-filter').value = 'ALL';
   applyStudyFilters();
@@ -487,9 +490,37 @@ function applyStudyFilters() {
   });
 
   document.getElementById('study-filter-count').textContent = `${studyFiltered.length} soru`;
-  studyIndex = 0;
+  // Aynı filtreye (ör. Klasse B) dönüldüğünde baştan değil, o filtrede kalınan sorudan devam et.
+  const kayitli = filtreKonumOku()[filtreAnahtari()];
+  const devamIdx = kayitli ? studyFiltered.findIndex(q => q.code === kayitli.code) : -1;
+  studyIndex = devamIdx >= 0 ? devamIdx : 0;
   renderStudySidebarList();
-  selectStudyQuestion(0);
+  selectStudyQuestion(studyIndex);
+}
+
+// ── Filtre bazında kaldığın yer (v27) ── her filtre birleşimi kendi son sorusunu hatırlar
+const FILTRE_KONUM_KEY = 'FAHRSCHULE_FILTRE_KONUM_V1';
+function filtreAnahtari(sinif, puan, durum, tur, arama) {
+  const deger = (id, v) => v != null ? v : (document.getElementById(id)?.value || 'ALL');
+  const ara = arama != null ? arama : (document.getElementById('study-search')?.value || '').trim().toLowerCase();
+  return [deger('study-class-filter', sinif), deger('study-points-filter', puan), deger('study-status-filter', durum), deger('study-type-filter', tur), ara].join('|');
+}
+function filtreKonumOku() {
+  try { const m = JSON.parse(localStorage.getItem(FILTRE_KONUM_KEY) || '{}'); return m && typeof m === 'object' ? m : {}; } catch (_) { return {}; }
+}
+function filtreKonumYaz(m) {
+  try { localStorage.setItem(FILTRE_KONUM_KEY, JSON.stringify(m)); } catch (_) {}
+}
+// Sınıf kartlarında "Kaldığın yer: 11 / 559" satırı
+function sinifKonumlariniGoster() {
+  const m = filtreKonumOku();
+  document.querySelectorAll('.class-konum[data-sinif]').forEach(el => {
+    const sinif = el.dataset.sinif;
+    const k = m[filtreAnahtari(sinif, 'ALL', 'ALL', 'ALL', '')];
+    const liste = k ? DB.filter(q => questionBelongsToClass(q, sinif) && !isEskiKod95(q)) : [];
+    const i = k ? liste.findIndex(q => q.code === k.code) : -1;
+    el.textContent = i >= 0 ? `📍 Kaldığın yer: ${i + 1} / ${liste.length}` : '';
+  });
 }
 
 // Fixed Bug #6: Render ALL filtered questions in sidebar using fast DocumentFragment
@@ -556,7 +587,7 @@ function selectStudyQuestion(idx) {
   studySonuc = null;
   studyLocalShowDE = false;
   studyShuffledOptions = curQ && Array.isArray(curQ.answers_tr)
-    ? sampleRandom(curQ.answers_tr, curQ.answers_tr.length)
+    ? sikSirasi(curQ)
     : [];
   sonKonumKaydet(curQ);
 
@@ -615,6 +646,7 @@ function renderStudyQuestion() {
 
     ${studySonucHtml(q)}
     <div class="q-title-tr">${esc(q.question_tr)}</div>
+    ${sadeSoruHtml(q)}
     ${showDE && q.question_de ? `<div class="q-title-de">🇩🇪 ${esc(q.question_de)}</div>` : ''}
     ${q.pretext_tr ? `<div class="q-pretext">${esc(q.pretext_tr)}</div>` : ''}
     ${buildKaynakNotuHtml(q)}
@@ -624,7 +656,7 @@ function renderStudyQuestion() {
 
     ${studyRevealed && q.explanation_tr ? `
       <div class="tr-explanation-box">
-        <b>🇹🇷 Çözüm & Kural Açıklaması:</b><br/>
+        <b>🇹🇷 Neden böyle?</b><br/>
         ${esc(q.explanation_tr)}
       </div>
     ` : ''}
@@ -721,6 +753,29 @@ function toggleStar(code) {
   saveProgress();
   renderStudyQuestion();
   renderStudySidebarList();
+}
+
+// Sade Türkçe (v28): resmi sınav metni aynen kalır, altında anlaşılır anlatımı gösterilir.
+function sadeSoruHtml(q) {
+  return q && q.question_sade_tr && q.question_sade_tr !== q.question_tr
+    ? `<div class="q-sade"><span class="q-sade-etiket">Kısaca</span>${esc(q.question_sade_tr)}</div>` : '';
+}
+function sadeSikHtml(a) {
+  return a && a.sade && a.sade !== a.text ? `<div class="option-sade">${esc(a.sade)}</div>` : '';
+}
+
+// Şıklar ezber olmasın diye karıştırılır; levhalı (resimli) şıklarda sıra sabit kalır,
+// çünkü açıklama ve Almanca kutusu A/B/C harfleriyle bu sıraya atıf yapar.
+function sikSirasi(q) {
+  const a = q.answers_tr || [];
+  return a.some(x => x && x.img) ? a.slice() : sampleRandom(a, a.length);
+}
+
+// Resimli şık (ör. "Hangi trafik işareti…?" sorularında levha seçenekleri)
+function sikResmiHtml(a) {
+  if (!a || !a.img) return '';
+  return `<span class="option-img-kap"><img class="option-img" src="media/${esc(a.img)}" alt="Şık görseli" loading="lazy" />`
+    + `<button class="sik-buyut" type="button" aria-label="Görseli büyüt" onclick="event.stopPropagation(); openLightbox('media/${esc(a.img)}')">🔍</button></span>`;
 }
 
 function buildMediaHtml(q) {
@@ -841,7 +896,7 @@ function buildStudyAnswerAreaHtml(q) {
       <div class="${rowCls}" onclick="toggleStudyChoice('${key}')">
         <div class="option-check">${checkSymbol}</div>
         <div class="option-content">
-          <div class="option-tr">${esc(a.text)}</div>
+          ${sikResmiHtml(a)}${a.text ? `<div class="option-tr">${esc(a.text)}</div>` : ''}${sadeSikHtml(a)}
           ${badgeHtml}
         </div>
       </div>
@@ -893,7 +948,7 @@ function buildGermanReferenceHtml(q, showCorrectness) {
         <ul class="de-options-ul">
           ${opts.map(o => `
             <li class="${showCorrectness && o.is_correct ? 'de-corr' : ''}">
-              <b>${esc(o.letter)}:</b> ${esc(o.text)}
+              <b>${esc(o.letter)}:</b> ${o.text ? esc(o.text) : (o.img ? '(levha / resim)' : '')}
               ${showCorrectness && o.is_correct ? ' <b style="color:var(--green);">✓ (Richtig)</b>' : ''}
             </li>
           `).join('')}
@@ -1019,6 +1074,9 @@ function sonKonumKaydet(q) {
       sira: studyIndex + 1, toplam: studyFiltered.length
     }));
   } catch (_) {}
+  const m = filtreKonumOku();
+  m[filtreAnahtari()] = { code: q.code, ts: Date.now() };
+  filtreKonumYaz(m);
 }
 function sonKonumOku() {
   try { return JSON.parse(localStorage.getItem(SON_KONUM_KEY) || 'null'); } catch (_) { return null; }
@@ -1280,7 +1338,7 @@ function launchExamStage(clsKey, isCombo, smartWeighted = false) {
   examOptionOrder.clear();
   examQuestions.forEach(q => {
     if (Array.isArray(q.answers_tr) && q.answers_tr.length) {
-      examOptionOrder.set(q.code, sampleRandom(q.answers_tr, q.answers_tr.length));
+      examOptionOrder.set(q.code, sikSirasi(q));
     }
   });
   examLocalShowDE = false;
@@ -1332,7 +1390,7 @@ function startMistakesExam() {
   examOptionOrder.clear();
   examQuestions.forEach(q => {
     if (Array.isArray(q.answers_tr) && q.answers_tr.length) {
-      examOptionOrder.set(q.code, sampleRandom(q.answers_tr, q.answers_tr.length));
+      examOptionOrder.set(q.code, sikSirasi(q));
     }
   });
   examLocalShowDE = false;
@@ -1545,7 +1603,7 @@ function renderExamQuestion() {
           <div class="option-row ${isSel ? 'selected' : ''}" onclick="toggleExamChoice('${esc(q.code)}', '${key}')">
             <div class="option-check">${isSel ? '✓' : displayLabel}</div>
             <div class="option-content">
-              <div class="option-tr">${esc(a.text)}</div>
+              ${sikResmiHtml(a)}${a.text ? `<div class="option-tr">${esc(a.text)}</div>` : ''}${sadeSikHtml(a)}
             </div>
           </div>
         `;
@@ -1565,6 +1623,7 @@ function renderExamQuestion() {
 
     mediaAndAnswerHtml = `
       <div class="q-title-tr">${esc(q.question_tr)}</div>
+      ${sadeSoruHtml(q)}
       ${showDE && q.question_de ? `<div class="q-title-de">🇩🇪 ${esc(q.question_de)}</div>` : ''}
       ${q.pretext_tr ? `<div class="q-pretext">${esc(q.pretext_tr)}</div>` : ''}
       ${mediaPart}
@@ -1822,7 +1881,7 @@ function renderExamResult(res) {
       </h3>
       <div style="display:flex;flex-direction:column;gap:12px;">
         ${res.wrongDetails.map(({ idx, q }) => {
-          const corrList = (q.answers_tr || []).filter(a => a.is_correct).map(a => a.text).join(' | ') || q.correct_answer_text;
+          const corrList = (q.answers_tr || []).map((a, i) => a.is_correct ? (a.text || `${String.fromCharCode(65 + i)} şıkkındaki levha`) : null).filter(Boolean).join(' | ') || q.correct_answer_text;
           return `
             <div style="background:var(--panel);border:1px solid var(--border-light);border-radius:11px;padding:14px;">
               <div style="display:flex;justify-content:space-between;font-size:12px;color:var(--muted);margin-bottom:4px;">
@@ -2019,10 +2078,90 @@ function openLightbox(src) {
   const img = document.getElementById('lightbox-img');
   if (!modal || !img) return;
   img.src = src;
+  yakinlikSifirla();
   const zatenAcik = lightboxAcikMi();
   modal.classList.add('open');
   if (!zatenAcik) gecmiseYaz({ view: aktifGorunum, tab: aktifSekme, katman: 'resim' });
 }
+
+// ── Büyük görselde yakınlaştırma (iki parmak, çift dokunma, fare tekerleği, sürükleme) ──
+const yakinlik = { s: 1, x: 0, y: 0, parmaklar: new Map(), bas: null, sonDokunma: 0, hareket: null };
+function yakinlikUygula() {
+  const img = document.getElementById('lightbox-img');
+  if (!img) return;
+  img.style.transform = `translate(${yakinlik.x}px, ${yakinlik.y}px) scale(${yakinlik.s})`;
+  img.style.cursor = yakinlik.s > 1 ? 'grab' : 'zoom-in';
+}
+function yakinlikSifirla() { yakinlik.s = 1; yakinlik.x = 0; yakinlik.y = 0; yakinlik.parmaklar.clear(); yakinlik.bas = null; yakinlikUygula(); }
+// Ekrandaki p noktası sabit kalacak şekilde ölçeği yeni değere getir (p: sahne merkezine göre)
+function yakinlikOlcekle(yeniS, px, py) {
+  yeniS = Math.min(6, Math.max(1, yeniS));
+  const f = yeniS / yakinlik.s;
+  yakinlik.x = px - (px - yakinlik.x) * f;
+  yakinlik.y = py - (py - yakinlik.y) * f;
+  yakinlik.s = yeniS;
+  if (yakinlik.s === 1) { yakinlik.x = 0; yakinlik.y = 0; }
+  yakinlikUygula();
+}
+function sahneNoktasi(e) {
+  const r = document.getElementById('lightbox-sahne').getBoundingClientRect();
+  return { x: e.clientX - (r.left + r.width / 2), y: e.clientY - (r.top + r.height / 2) };
+}
+function yakinlikKur() {
+  const img = document.getElementById('lightbox-img');
+  if (!img || img.dataset.yakinlik) return;
+  img.dataset.yakinlik = '1';
+  img.addEventListener('pointerdown', e => {
+    e.preventDefault();
+    try { img.setPointerCapture(e.pointerId); } catch (_) {}
+    yakinlik.parmaklar.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    const p = [...yakinlik.parmaklar.values()];
+    if (p.length === 1) yakinlik.hareket = { x: e.clientX, y: e.clientY, coklu: false };
+    if (p.length === 2) {
+      if (yakinlik.hareket) yakinlik.hareket.coklu = true;
+      yakinlik.bas = { mesafe: Math.hypot(p[0].x - p[1].x, p[0].y - p[1].y), s: yakinlik.s };
+    }
+  });
+  img.addEventListener('pointermove', e => {
+    if (!yakinlik.parmaklar.has(e.pointerId)) return;
+    const onceki = yakinlik.parmaklar.get(e.pointerId);
+    yakinlik.parmaklar.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    const p = [...yakinlik.parmaklar.values()];
+    if (p.length === 2 && yakinlik.bas) {
+      const m = Math.hypot(p[0].x - p[1].x, p[0].y - p[1].y);
+      const orta = sahneNoktasi({ clientX: (p[0].x + p[1].x) / 2, clientY: (p[0].y + p[1].y) / 2 });
+      yakinlikOlcekle(yakinlik.bas.s * m / yakinlik.bas.mesafe, orta.x, orta.y);
+    } else if (p.length === 1 && yakinlik.s > 1) {
+      yakinlik.x += e.clientX - onceki.x;
+      yakinlik.y += e.clientY - onceki.y;
+      yakinlikUygula();
+    }
+  });
+  const birak = e => {
+    const tekti = yakinlik.parmaklar.size === 1;
+    yakinlik.parmaklar.delete(e.pointerId);
+    if (yakinlik.parmaklar.size < 2) yakinlik.bas = null;
+    const h = yakinlik.hareket;
+    const dokunma = h && !h.coklu && Math.hypot(e.clientX - h.x, e.clientY - h.y) < 12;
+    if (e.type === 'pointerup' && tekti && !dokunma) yakinlik.sonDokunma = 0;
+    if (e.type === 'pointerup' && tekti && dokunma) {
+      const simdi = Date.now();
+      if (simdi - yakinlik.sonDokunma < 300) {
+        const n = sahneNoktasi(e);
+        yakinlikOlcekle(yakinlik.s > 1 ? 1 : 2.5, n.x, n.y);
+        yakinlik.sonDokunma = 0;
+      } else yakinlik.sonDokunma = simdi;
+    }
+  };
+  img.addEventListener('pointerup', birak);
+  img.addEventListener('pointercancel', birak);
+  img.addEventListener('wheel', e => {
+    e.preventDefault();
+    const n = sahneNoktasi(e);
+    yakinlikOlcekle(yakinlik.s * (e.deltaY < 0 ? 1.2 : 1 / 1.2), n.x, n.y);
+  }, { passive: false });
+}
+onAppReady(yakinlikKur);
 
 function lightboxAcikMi() {
   return !!document.getElementById('lightbox-modal')?.classList.contains('open');
@@ -2187,10 +2326,21 @@ function senkronPaketi() {
       qStats: state.qStats, starred: state.starred, examHistory: state.examHistory,
       alwaysShowDE: state.alwaysShowDE, gunluk: state.gunluk || {}, gunlukHedef: state.gunlukHedef
     },
-    sonKonum: sonKonumOku()
+    sonKonum: sonKonumOku(),
+    filtreKonum: filtreKonumOku()
   };
 }
+function senkronFiltreKonumAl(uzak) {
+  const u = uzak && uzak.filtreKonum;
+  if (!u || typeof u !== 'object') return;
+  const m = filtreKonumOku();
+  for (const [k, v] of Object.entries(u)) {
+    if (v && typeof v.code === 'string' && (!m[k] || (v.ts || 0) > (m[k].ts || 0))) m[k] = { code: v.code, ts: v.ts || 0 };
+  }
+  filtreKonumYaz(m);
+}
 function senkronSonKonumAl(uzak) {
+  senkronFiltreKonumAl(uzak);
   const k = uzak && uzak.sonKonum;
   if (!k || typeof k !== 'object' || typeof k.code !== 'string') return;
   const yerel = sonKonumOku();

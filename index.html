@@ -11,7 +11,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600;700&family=Geist+Mono:wght@400;500&display=swap" />
-  <link rel="stylesheet" href="styles.css?v=26" />
+  <link rel="stylesheet" href="styles.css?v=27" />
   <script>try{var t=localStorage.getItem("FAHRSCHULE_TEMA");if(t==="acik"||t==="koyu")document.documentElement.dataset.tema=t;}catch(e){}</script>
 </head>
 <body>
@@ -118,6 +118,7 @@
             <span class="class-rule-pill">30 soru</span>
           </div>
           <p class="class-ozet">20 temel + 10 B · en fazla 10 hata puanı</p>
+          <p class="class-konum" data-sinif="Klasse B"></p>
           <div class="class-card-actions">
             <button class="btn btn-outline" onclick="openClassStudy('Klasse B')">Çalış</button>
             <button class="btn btn-primary" onclick="quickStartExam('B')">Sınav</button>
@@ -130,6 +131,7 @@
             <span class="class-rule-pill">37 soru</span>
           </div>
           <p class="class-ozet">10 temel + 27 C · en fazla 10 hata puanı</p>
+          <p class="class-konum" data-sinif="Klasse C"></p>
           <div class="class-card-actions">
             <button class="btn btn-outline" onclick="openClassStudy('Klasse C')">Çalış</button>
             <button class="btn btn-primary" onclick="quickStartExam('C')">Sınav</button>
@@ -142,6 +144,7 @@
             <span class="class-rule-pill">30 soru</span>
           </div>
           <p class="class-ozet">10 temel + 20 CE · en fazla 10 hata puanı</p>
+          <p class="class-konum" data-sinif="Klasse CE"></p>
           <div class="class-card-actions">
             <button class="btn btn-outline" onclick="openClassStudy('Klasse CE')">Çalış</button>
             <button class="btn btn-primary" onclick="quickStartExam('CE')">Sınav</button>
@@ -154,6 +157,7 @@
             <span class="class-rule-pill" title="Sorular DIHK resmi havuzundan; cevap anahtarı resmi değildir">561 soru</span>
           </div>
           <p class="class-ozet">50 soru · 90 dakika · en az %50 puanla geçilir</p>
+          <p class="class-konum" data-sinif="Kod 95"></p>
           <div class="class-card-actions">
             <button class="btn btn-outline" onclick="openClassStudy('Kod 95')">Çalış</button>
             <button class="btn btn-primary" onclick="quickStartExam('KOD95')">Sınav</button>
@@ -537,11 +541,15 @@
   </nav>
 
   <!-- ── IMAGE LIGHTBOX MODAL ── -->
-  <div id="lightbox-modal" class="lightbox-modal" onclick="closeLightbox()">
-    <img id="lightbox-img" src="" alt="Büyük Görsel" />
+  <div id="lightbox-modal" class="lightbox-modal" role="dialog" aria-label="Büyük görsel" onclick="if (event.target === this || event.target.id === 'lightbox-sahne') closeLightbox()">
+    <button class="lightbox-kapat" type="button" onclick="closeLightbox()" aria-label="Kapat">✕</button>
+    <div class="lightbox-sahne" id="lightbox-sahne">
+      <img id="lightbox-img" src="" alt="Büyük Görsel" draggable="false" />
+    </div>
+    <div class="lightbox-ipucu">İki parmakla ya da çift dokunarak yakınlaştır · sürükleyerek gez</div>
   </div>
 
   <!-- kilit.js: şifreli soruları çözer, sonra app.js'i yükler (yerel kaynak klasöründe düz dosyaları yükler). -->
-  <script src="kilit.js?v=26"></script>
+  <script src="kilit.js?v=27"></script>
 </body>
 </html>
