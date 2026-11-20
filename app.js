@@ -2242,6 +2242,8 @@ let senkronTekrar = false;
 let senkronUyguluyor = false;     // uzaktan gelen veri yazılırken "kirli" işaretleme
 let senkronDegisiklik = 0;        // gönderim sırasında yeni değişiklik oldu mu?
 let senkronSonCekim = 0;
+let senkronZorla = '';           // '' | 'acilis' (yalnız birleştir) | 'elle' (birleştir + gönder)
+let senkronUzakSayi = null;       // son çekilen kayıttaki çözülmüş soru sayısı (tanı için)
 
 function senkronOku() {
   try {
@@ -2434,14 +2436,20 @@ async function senkronCalistir() {
     senkronSonCekim = Date.now();
     if (!uzak && senkron.surum > 0) { senkron.surum = 0; senkron.kirli = true; } // sunucudaki kayıt kaybolduysa yeniden yükle
 
+    // Zorla: sürüm numarası aynı görünse bile sunucudaki veriyi bu cihazdakiyle BİRLEŞTİR.
+    // (Sürüm sayacı bir şekilde ilerlemiş ama veri bu cihaza işlenmemişse kendiliğinden düzelsin.)
+    let zorla = senkronZorla; senkronZorla = '';
     for (let deneme = 0; deneme < 5; deneme++) {
-      if (uzak && uzak.surum !== senkron.surum) {
+      if (uzak && (zorla || uzak.surum !== senkron.surum)) {
         const veri = await senkronCoz(anahtar, uzak.veri);
         if (veri) {
-          if (senkron.kirli) senkronBirlestir(veri); else senkronUygula(veri);
+          senkronUzakSayi = veri.durum && veri.durum.qStats ? Object.keys(veri.durum.qStats).length : 0;
+          if (senkron.kirli || zorla) senkronBirlestir(veri); else senkronUygula(veri);
+          if (zorla === 'elle') { senkron.kirli = true; senkronDegisiklik++; } // birleşik hali geri gönder
           senkronDurumuKaydet();
           senkronYenidenCiz();
         }
+        zorla = '';
         senkron.surum = uzak.surum;
         senkronYaz();
       }
@@ -2512,6 +2520,12 @@ async function senkronKodlaBaglan() {
   senkronYaz();
   await senkronCalistir();
 }
+function senkronElle() {
+  if (!senkron.kod) return;
+  senkronZorla = 'elle';
+  senkronSonCekim = 0;
+  senkronCalistir();
+}
 function senkronKapat() {
   if (!confirm('Bu cihazda senkron kapatılsın mı? Bu cihazdaki ilerleme kalır ama artık diğer cihazlarla eşitlenmez.')) return;
   senkron = { kod: '', surum: 0, kirli: false, son: 0, hata: '' };
@@ -2570,9 +2584,10 @@ function senkronArayuz(durum = '', mesaj = '') {
     <p class="senkron-aciklama">Bu kodu diğer cihazında <b>İstatistik → Cihazlar arası senkron</b> bölümüne yaz. Kodu kimseyle paylaşma: kodu bilen ilerlemeni görebilir.</p>
     <div class="senkron-kod" aria-label="Senkron kodu">${esc(senkronKodBicim(senkron.kod))}</div>
     <p class="senkron-durum" role="status">${esc(satir)}</p>
+    <p class="senkron-bilgi">Bu cihazda çözülen: <b>${Object.keys(state.qStats || {}).length}</b> soru${senkronUzakSayi !== null ? ` · sunucudaki kayıtta: <b>${senkronUzakSayi}</b>` : ''} · kayıt sürümü ${senkron.surum}</p>
     <div class="senkron-dugmeler">
       <button class="btn btn-outline" type="button" onclick="senkronKodKopyala()">Kodu kopyala</button>
-      <button class="btn btn-outline" type="button" onclick="senkronCalistir()">Şimdi eşitle</button>
+      <button class="btn btn-outline" type="button" onclick="senkronElle()">Şimdi eşitle</button>
       <button class="btn btn-outline" type="button" onclick="senkronKapat()">Bu cihazda kapat</button>
     </div>
     ${mesaj ? `<p class="senkron-mesaj" role="status">${esc(mesaj)}</p>` : ''}`;
@@ -2581,7 +2596,7 @@ function senkronArayuz(durum = '', mesaj = '') {
 // ── Başlangıç ───────────────────────────────────────────────────────────
 onAppReady(() => {
   senkronArayuz();
-  if (senkron.kod) senkronCalistir();
+  if (senkron.kod) { senkronZorla = 'acilis'; senkronCalistir(); }
   document.addEventListener('visibilitychange', () => {
     if (!senkron.kod) return;
     if (document.visibilityState === 'visible') {
