@@ -354,11 +354,25 @@ function speakCurrentQuestion() {
   }
   if (!q) return;
 
-  const text = useDE && q.question_de ? q.question_de : q.question_tr;
-  const utter = new SpeechSynthesisUtterance(text);
-  utter.lang = useDE ? 'de-DE' : 'tr-TR';
-  utter.rate = 0.96;
-  window.speechSynthesis.speak(utter);
+  // Soru ve ardından şıklar (ekrandaki sırayla, harfleriyle) okunur.
+  const almanca = useDE && !!q.question_de;
+  const parcalar = [almanca ? q.question_de : [q.question_tr, q.pretext_tr].filter(Boolean).join(' ')];
+  if (q.type !== 'number') {
+    let siklar;
+    if (almanca) siklar = q.answers_de || [];
+    else siklar = (isExamViewActive ? examOptionOrder.get(q.code) : studyShuffledOptions) || q.answers_tr || [];
+    siklar.forEach((a, i) => {
+      const harf = String.fromCharCode(65 + i);
+      const metin = (a.text || '').replace(/^-\s*/, '') || (almanca ? 'Bild' : 'resim');
+      parcalar.push(almanca ? `Antwort ${harf}: ${metin}` : `${harf} şıkkı: ${metin}`);
+    });
+  }
+  parcalar.forEach(t => {
+    const utter = new SpeechSynthesisUtterance(t);
+    utter.lang = almanca ? 'de-DE' : 'tr-TR';
+    utter.rate = 0.96;
+    window.speechSynthesis.speak(utter);
+  });
 }
 
 // ── Dashboard Logic ──────────────────────────────────────────────────────
@@ -891,7 +905,8 @@ function buildStudyAnswerAreaHtml(q) {
             value="${esc(val)}" placeholder="?"
             ${studyRevealed ? 'readonly' : ''}
             onfocus="studyActiveNumIdx = ${idx}"
-            oninput="studyActiveNumIdx = ${idx}; studyNumberValues[${idx}] = this.value" />
+            oninput="studyActiveNumIdx = ${idx}; studyNumberValues[${idx}] = this.value"
+            onkeydown="if (event.key === 'Enter') { event.preventDefault(); studyNumberValues[${idx}] = this.value; if (!studyRevealed) checkStudyAnswer(); }" />
           ${after ? `<span style="font-size:13px;color:var(--muted);">${esc(after)}</span>` : ''}
         </div>
       `;
