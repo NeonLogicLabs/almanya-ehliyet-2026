@@ -104,9 +104,12 @@ const EXAM_CONFIG = {
 });
 
 // kilit.js bu dosyayı DOMContentLoaded'dan SONRA yükler; o yüzden olayı beklemeden de başlayabilmeli.
+// Ama fn hemen ÇALIŞMAMALI: dosyanın aşağısındaki const'lar (SON_KONUM_KEY, FILTRE_KONUM_KEY, senkron…)
+// henüz tanımlanmamış olur ("TDZ"); try/catch'ler hatayı yutar ve kayıtlı konum boş okunur.
+// setTimeout ile dosyanın tamamı değerlendirildikten sonra başlat.
 function onAppReady(fn) {
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', fn, { once: true });
-  else fn();
+  else setTimeout(fn, 0);
 }
 
 onAppReady(() => {
@@ -2393,7 +2396,12 @@ function senkronYenidenCiz() {
   try { updateGlobalDEButton(); } catch (_) {}
   try { updateDynamicCounts(); } catch (_) {}
   try { if (document.getElementById('view-stats')?.classList.contains('active')) renderStatsView(); } catch (_) {}
-  try { if (document.getElementById('view-study')?.classList.contains('active')) renderStudySidebarList(); } catch (_) {}
+  try {
+    // Çalış ekranı açık değilse, başka cihazdan gelen "kaldığın yer"i hemen uygula;
+    // açıksa kullanıcının o anki sorusunu bozma, yalnız listeyi tazele.
+    if (document.getElementById('view-study')?.classList.contains('active')) renderStudySidebarList();
+    else applyStudyFilters();
+  } catch (_) {}
 }
 function senkronDurumuKaydet() {
   senkronUyguluyor = true;

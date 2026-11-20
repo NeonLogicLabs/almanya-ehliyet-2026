@@ -16,7 +16,7 @@
 (function () {
   'use strict';
 
-  const SURUM = '28';
+  const SURUM = '29';
   const IDB_AD = 'ehliyet-kilit';
   const IDB_DEPO = 'anahtar';
   const IDB_ANAHTAR = 'k';
