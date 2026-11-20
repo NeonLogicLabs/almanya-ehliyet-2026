@@ -27,7 +27,8 @@ let studyActiveNumIdx = 0;
 let studyRevealed = false;
 let studyLocalShowDE = false;
 let studyShuffledOptions = [];
-let studySonuc = null; // son "Cevabı kontrol et" sonucunun özeti (geri bildirim kutusu için)
+let studySonuc = null;
+let studyBakildi = false; // bu soruda "Doğru cevabı gör" kullanıldı mı (aralıklı tekrar) // son "Cevabı kontrol et" sonucunun özeti (geri bildirim kutusu için)
 let sinavSonDakikaUyarildi = false;
 
 // Exam View State
@@ -227,8 +228,12 @@ function renderLeitnerDotsHtml(code) {
   if (streak >= 3) label = 'Tam Öğrenildi (3/3)';
   else if (streak > 0) label = `Gelişiyor (${streak}/3)`;
   else if (isWrong) label = 'Hatalı (0/3)';
+  if (st) {
+    const t = tekrarGunu(st);
+    label += t <= bugunAnahtar() ? ' · 🔁 tekrar zamanı' : ` · tekrar ${tekrarMetni(t)}`;
+  }
 
-  return `<span class="leitner-dots" title="Leitner 3 Aşamalı Öğrenme Sistemi">${dots} <span>${label}</span></span>`;
+  return `<span class="leitner-dots" title="Aralıklı tekrar: doğru cevaptan sonra 1, 3 ve 7 gün sonra yeniden sorulur">${dots} <span>${label}</span></span>`;
 }
 
 // ── Tarayıcı geri/ileri tuşuyla gezinme ─────────────────────────────────
@@ -432,6 +437,18 @@ function filterCriticalFivePoints() {
   switchView('study');
 }
 
+function bugunTekrarSayisi() {
+  return DB.filter(q => !isEskiKod95(q) && tekrarZamaniGeldi(q.code)).length;
+}
+function openTodayReview() {
+  aramaVeTuruSifirla();
+  document.getElementById('study-class-filter').value = 'ALL';
+  document.getElementById('study-points-filter').value = 'ALL';
+  document.getElementById('study-status-filter').value = 'due';
+  applyStudyFilters();
+  switchView('study');
+}
+
 function filterTrapQuestions() {
   aramaVeTuruSifirla();
   document.getElementById('study-class-filter').value = 'ALL';
@@ -510,6 +527,7 @@ function applyStudyFilters() {
     // Fixed Bug #3: Box 3 ('learned') strictly filters 3/3 mastered questions only!
     if (statusVal === 'learned' && box !== 'learned') return false;
     if (statusVal === 'starred' && !state.starred[q.code]) return false;
+    if (statusVal === 'due' && !tekrarZamaniGeldi(q.code)) return false;
 
     if (searchVal) {
       const hay = `${q.code} ${q.question_tr} ${q.question_de}`.toLowerCase();
@@ -620,6 +638,7 @@ function selectStudyQuestion(idx) {
   studyActiveNumIdx = 0;
   studyRevealed = false;
   studySonuc = null;
+  studyBakildi = false;
   studyLocalShowDE = false;
   studyShuffledOptions = curQ && Array.isArray(curQ.answers_tr)
     ? sikSirasi(curQ)
@@ -742,6 +761,7 @@ function peekStudyCorrectAnswer() {
     return;
   }
   studySelectedChoices.clear();
+  studyBakildi = true;
   if (q.type === 'number') {
     const expNums = parseAllNumbers(q.correct_answer_text);
     const numCount = (Array.isArray(q.number_inputs) && q.number_inputs.length) ? q.number_inputs.length : 1;
@@ -1051,7 +1071,7 @@ function checkStudyAnswer() {
     };
   }
   studyRevealed = true;
-  recordQuestionAttempt(q.code, isCorrect);
+  studySonuc.tekrar = recordQuestionAttempt(q.code, isCorrect, { bakildi: studyBakildi });
   gunlukSay();
   renderStudyQuestion();
   renderStudySidebarList();
@@ -1060,11 +1080,18 @@ function checkStudyAnswer() {
 }
 
 // 1) Hızlı geri bildirim: kontrol sonrası sorunun üstünde büyük, renkli sonuç
+function tekrarNotuHtml(t) {
+  if (!t) return '';
+  if (t.bakildi) return `<small class="tekrar-not">👁️ Cevaba baktığın için ilerlemeye sayılmadı; bu soru ${tekrarMetni(t.tekrar)} yeniden sorulacak.</small>`;
+  if (t.erken) return `<small class="tekrar-not">⏳ Tekrar zamanı gelmeden çözdün; aşama ilerlemedi. Sıradaki tekrar: ${tekrarMetni(t.tekrar)}.</small>`;
+  if (t.sayildi) return `<small class="tekrar-not">🔁 ${t.asama >= 3 ? 'Öğrenildi (3/3)! ' : `Aşama ${t.asama}/3. `}Sıradaki tekrar: ${tekrarMetni(t.tekrar)}.</small>`;
+  return `<small class="tekrar-not">🔁 Bu soru bugün yeniden tekrar listende.</small>`;
+}
 function studySonucHtml(q) {
   if (!studyRevealed || !studySonuc) return '';
   const s = studySonuc;
   if (s.dogru) {
-    return `<div id="study-sonuc" class="sonuc-kutu sonuc-dogru" role="status">✅ Doğru!<small>${s.sayi ? 'Cevabın doğru.' : (s.toplamDogru > 1 ? `${s.toplamDogru} doğru şıkkın hepsini buldun.` : 'Doğru şıkkı buldun.')}</small></div>`;
+    return `<div id="study-sonuc" class="sonuc-kutu sonuc-dogru" role="status">✅ Doğru!<small>${s.sayi ? 'Cevabın doğru.' : (s.toplamDogru > 1 ? `${s.toplamDogru} doğru şıkkın hepsini buldun.` : 'Doğru şıkkı buldun.')}</small>${tekrarNotuHtml(s.tekrar)}</div>`;
   }
   let neden = '';
   if (s.sayi) neden = `Doğru cevap: ${esc(q.correct_answer_text)}`;
@@ -1074,7 +1101,7 @@ function studySonucHtml(q) {
     if (s.fazla) parca.push(`${s.fazla} yanlış şıkkı işaretledin`);
     neden = parca.join(', ') + '.' + (s.toplamDogru > 1 ? ` Bu soruda ${s.toplamDogru} doğru şık vardı; hepsini işaretlemelisin.` : '');
   }
-  return `<div id="study-sonuc" class="sonuc-kutu sonuc-yanlis" role="status">❌ Yanlış<small>${neden}</small></div>`;
+  return `<div id="study-sonuc" class="sonuc-kutu sonuc-yanlis" role="status">❌ Yanlış<small>${neden}</small>${tekrarNotuHtml(s.tekrar)}</div>`;
 }
 
 // 5) Günlük hedef ve çalışma serisi
@@ -1197,7 +1224,15 @@ function renderDashUst() {
       <strong>${sinavOzetMetni(yarim)}</strong>
       <button class="btn btn-primary ada" onclick="sinavDevamEt()">Sınava dön<span class="ok" aria-hidden="true">↗</span></button>
     </div>` : '';
-  kap.innerHTML = sinavKart + devam + `
+  const tekrarSayi = bugunTekrarSayisi();
+  const tekrarKart = tekrarSayi > 0 ? `
+    <div class="dash-kart dash-tekrar">
+      <span class="dash-etiket">Bugünkü tekrar</span>
+      <strong>🔁 Tekrar zamanı gelen ${tekrarSayi.toLocaleString('tr-TR')} soru var</strong>
+      <span class="dash-soluk">Yanlış yaptıkların ve tekrar günü gelenler. Unutmadan pekiştir.</span>
+      <button class="btn btn-primary ada" onclick="openTodayReview()">Tekrar et<span class="ok" aria-hidden="true">↗</span></button>
+    </div>` : '';
+  kap.innerHTML = sinavKart + tekrarKart + devam + `
     <div class="dash-kart dash-hedef">
       <div class="hedef-ust">
         <div class="halka" style="--p:${yuzde}" role="img" aria-label="Bugünkü hedefin yüzde ${yuzde} kadarı tamam"><span>${yuzde}%</span></div>
@@ -1239,19 +1274,76 @@ if (window.matchMedia) {
 }
 temaDugmesiGuncelle();
 
-function recordQuestionAttempt(code, isCorrect) {
+// ── Aralıklı tekrar (v32) ──────────────────────────────────────────────
+// Bir soru, art arda aynı gün 3 kez doğru bilinince "öğrenildi" sayılmaz. Her doğru cevaptan
+// sonra soru bir sonraki tekrar gününe kadar bekler: 1. doğru → 1 gün, 2. → 3 gün, 3. → 7 gün
+// (3/3 = öğrenildi), sonrası → 30 gün. Vakti gelmeden doğru çözmek aşamayı ilerletmez.
+// Yanlış cevap aşamayı sıfırlar ve soru aynı gün yeniden tekrar listesine girer.
+// Cevaba bakıp sonra doğru işaretlemek aşamayı ilerletmez; soru ertesi gün yeniden sorulur.
+const TEKRAR_ARALIGI = [0, 1, 3, 7, 30]; // yeni aşamaya göre gün
+function gunEkle(gun, n) {
+  const [y, a, g] = gun.split('-').map(Number);
+  return bugunAnahtar(new Date(y, a - 1, g + n));
+}
+// Bir sorunun sıradaki tekrar günü (YYYY-MM-DD). Eski kayıtlarda alan yoksa son görülme + aralıktan hesaplanır.
+function tekrarGunu(st) {
+  if (!st) return null;
+  if (st.status === 'wrong' || !(st.correctStreak > 0)) return st.tekrar || bugunAnahtar();
+  if (typeof st.tekrar === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(st.tekrar)) return st.tekrar;
+  const son = st.lastSeen ? bugunAnahtar(new Date(st.lastSeen)) : bugunAnahtar();
+  return gunEkle(son, TEKRAR_ARALIGI[Math.min(4, st.correctStreak)]);
+}
+function tekrarZamaniGeldi(code) {
+  const st = state.qStats[code];
+  return !!st && tekrarGunu(st) <= bugunAnahtar();
+}
+function gunFarki(gun) {
+  const [y, a, g] = gun.split('-').map(Number);
+  const b = new Date(); b.setHours(0, 0, 0, 0);
+  return Math.round((new Date(y, a - 1, g) - b) / 86400000);
+}
+function tekrarMetni(gun) {
+  const f = gunFarki(gun);
+  if (f <= 0) return 'bugün';
+  if (f === 1) return 'yarın';
+  const [y, a, g] = gun.split('-').map(Number);
+  return `${f} gün sonra (${new Date(y, a - 1, g).toLocaleDateString('tr-TR', { day: 'numeric', month: 'long' })})`;
+}
+// Sonuç: { sayildi, erken, bakildi, asama, tekrar }
+function recordQuestionAttempt(code, isCorrect, secenek = {}) {
   const prev = state.qStats[code] || { status: 'unseen', correctStreak: 0, wrongCount: 0 };
-  if (isCorrect) {
-    prev.correctStreak = Math.min(3, (prev.correctStreak || 0) + 1);
+  const bugun = bugunAnahtar();
+  const sonuc = { sayildi: false, erken: false, bakildi: false };
+  if (isCorrect && secenek.bakildi) {
+    // Cevaba bakarak doğru: bilinmiyor sayılır, aşama değişmez, yarın yeniden sorulur
+    sonuc.bakildi = true;
+    if (!prev.correctStreak) prev.status = 'wrong'; // aşaması 0 olan soru 'bilinmiyor' kutusunda kalır
+    const yarin = gunEkle(bugun, 1);
+    const eski = tekrarGunu(state.qStats[code]);
+    prev.tekrar = eski && eski < yarin ? eski : yarin;
+  } else if (isCorrect) {
+    const vakit = !state.qStats[code] || prev.status === 'wrong' || tekrarGunu(prev) <= bugun;
+    if (vakit) {
+      prev.correctStreak = Math.min(4, (prev.correctStreak || 0) + 1);
+      prev.tekrar = gunEkle(bugun, TEKRAR_ARALIGI[prev.correctStreak]);
+      sonuc.sayildi = true;
+    } else {
+      prev.tekrar = tekrarGunu(prev); // eski kayıtlarda tarihi sabitle
+      sonuc.erken = true;
+    }
     prev.status = prev.correctStreak >= 3 ? 'learned' : 'learning';
   } else {
     prev.correctStreak = 0;
     prev.wrongCount = (prev.wrongCount || 0) + 1;
     prev.status = 'wrong';
+    prev.tekrar = bugun;
   }
   prev.lastSeen = Date.now();
   state.qStats[code] = prev;
   saveProgress();
+  sonuc.asama = Math.min(3, prev.correctStreak || 0);
+  sonuc.tekrar = tekrarGunu(prev);
+  return sonuc;
 }
 
 // ── Shared Evaluation Helpers (Supports Single & Multi-Input Numbers!) ───
@@ -1328,13 +1420,14 @@ function restartCurrentExamType() {
 }
 
 function sampleSmartWeighted(pool, count) {
-  const buckets = { wrong: [], unseen: [], learning: [], learned: [] };
+  const buckets = { wrong: [], due: [], unseen: [], learning: [], learned: [] };
   pool.forEach(q => {
     const b = getLeitnerBox(q.code);
-    buckets[b].push(q);
+    buckets[b !== 'wrong' && b !== 'unseen' && tekrarZamaniGeldi(q.code) ? 'due' : b].push(q);
   });
   const ordered = [
     ...sampleRandom(buckets.wrong, buckets.wrong.length),
+    ...sampleRandom(buckets.due, buckets.due.length),
     ...sampleRandom(buckets.unseen, buckets.unseen.length),
     ...sampleRandom(buckets.learning, buckets.learning.length),
     ...sampleRandom(buckets.learned, buckets.learned.length)

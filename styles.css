@@ -1923,3 +1923,7 @@ button, input, select, textarea { font-family: inherit; }
 .sinav-devam-dugmeler { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 6px; }
 /* Sınav sırasında telefonda aşağı çekince sayfa yenilenmesin */
 html.sinav-acik, html.sinav-acik body { overscroll-behavior-y: contain; }
+
+/* v32: aralıklı tekrar */
+.dash-tekrar { grid-column: 1 / -1; border-color: var(--hair); }
+.sonuc-kutu small.tekrar-not { display: block; margin-top: 6px; opacity: .9; font-weight: 600; }
