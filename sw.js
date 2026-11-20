@@ -1,4 +1,4 @@
-const CACHE_NAME = 'fahrschule-gold-v30';
+const CACHE_NAME = 'fahrschule-gold-v31';
 // Uygulama kabuğu. Şifreli yayında questions_full.js yoktur (yerine sifreli/sorular.bin);
 // bu yüzden dosyalar tek tek ve hata yutularak önbelleğe alınır.
 const CORE_ASSETS = [
@@ -8,9 +8,8 @@ const CORE_ASSETS = [
   './kilit.js',
   './app.js',
   './manifest.json',
-  './sifreli/kilit.json',
-  './sifreli/sorular.bin',
-  './questions_full.js'
+  './sifreli/kilit.json'
+  // sorular.bin (~4 MB) burada YOK: ilk açılışta ?v= adresiyle bir kez indirilip önbelleğe girer.
 ];
 
 self.addEventListener('install', event => {
@@ -142,6 +141,19 @@ self.addEventListener('fetch', event => {
 
   // Başka sitelere giden istekler (ör. senkron sunucusu) SW'ye uğramadan doğrudan gitsin.
   if (url.origin !== self.location.origin) return;
+
+  // Büyük, sürümlü soru dosyası: aynı ?v= sürümü değişmez → önce önbellek (her açılışta 4 MB inmesin).
+  // Yeni sürüm yayınlanınca ?v= değişir ve CACHE_NAME yenilenir; eski kopya silinir.
+  if (/\/(sifreli\/sorular\.bin|questions_full\.js)$/.test(url.pathname) && url.searchParams.has('v')) {
+    event.respondWith(caches.open(CACHE_NAME).then(async cache => {
+      const kayitli = await cache.match(req);
+      if (kayitli) return kayitli;
+      const yanit = await fetch(req, { cache: 'no-store' });
+      if (yanit.status === 200) await cache.put(req, yanit.clone());
+      return yanit;
+    }));
+    return;
+  }
 
   // Uygulama kabuğu: önce ağ (güncellemeler hemen gelsin), ağ yoksa önbellek.
   event.respondWith(

@@ -128,7 +128,7 @@ onAppReady(() => {
     let refreshing = false;
     navigator.serviceWorker.addEventListener('controllerchange', () => {
       // Only reload when upgrading from an existing service worker, never on first install!
-      if (hadController && !refreshing) {
+      if (hadController && !refreshing && !sinavSuruyor()) {
         refreshing = true;
         window.location.reload();
       }
@@ -155,13 +155,25 @@ function sanitizeLoadedState(parsed) {
     state.starred = parsed.starred;
   }
   if (Array.isArray(parsed.examHistory)) {
-    state.examHistory = parsed.examHistory;
+    const sayi = v => (Number.isFinite(+v) ? +v : 0);
+    state.examHistory = parsed.examHistory.filter(h => h && typeof h === 'object').slice(0, 30).map(h => ({
+      date: String(h.date ?? ''), mode: String(h.mode ?? ''), passed: !!h.passed, isIHK: !!h.isIHK,
+      wrongPoints: sayi(h.wrongPoints), earnedPoints: sayi(h.earnedPoints), totalPointsPossible: sayi(h.totalPointsPossible),
+      fivePtWrong: sayi(h.fivePtWrong), correctCount: sayi(h.correctCount), total: sayi(h.total)
+    }));
   }
   if (typeof parsed.alwaysShowDE === 'boolean') {
     state.alwaysShowDE = parsed.alwaysShowDE;
   }
   if (parsed.gunluk && typeof parsed.gunluk === 'object' && !Array.isArray(parsed.gunluk)) {
-    state.gunluk = parsed.gunluk;
+    state.gunluk = gunlukTemizle(parsed.gunluk);
+  }
+  if (parsed.gunlukCihaz && typeof parsed.gunlukCihaz === 'object' && !Array.isArray(parsed.gunlukCihaz)) {
+    const c = {};
+    for (const [id, g] of Object.entries(parsed.gunlukCihaz)) {
+      if (/^[a-z0-9]{6,32}$/.test(id) && g && typeof g === 'object' && !Array.isArray(g)) c[id] = gunlukTemizle(g);
+    }
+    state.gunlukCihaz = c;
   }
   if ([10, 20, 30, 50].includes(parsed.gunlukHedef)) {
     state.gunlukHedef = parsed.gunlukHedef;
@@ -279,6 +291,7 @@ function switchView(viewName, highlightTabName = null, secenek = {}) {
   });
 
   if (viewName === 'dashboard') refreshDashboard();
+  if (viewName === 'exam') sinavDevamKutusu();
   if (viewName === 'stats') renderStatsView();
   if (viewName === 'cheatsheet') {
     updateFormulaCalc();
@@ -347,12 +360,15 @@ function speakCurrentQuestion() {
 function refreshDashboard() {
   renderDashUst();
   sinifKonumlariniGoster();
-  const total = DB.length;
+  // Eski (2026 havuzunda olmayan) Kod 95 soruları çalışma listesinde görünmediği için sayılmaz;
+  // yoksa hazırlık yüzdesi hiç %100 olamaz ve "Hatalarım" sayısı listeyle tutmaz.
+  const havuz = DB.filter(q => !isEskiKod95(q));
+  const total = havuz.length;
   let learned = 0;
   let learning = 0;
   let wrong = 0;
 
-  DB.forEach(q => {
+  havuz.forEach(q => {
     const box = getLeitnerBox(q.code);
     if (box === 'learned') learned++;
     else if (box === 'learning') learning++;
@@ -392,7 +408,14 @@ function openClassStudy(clsName) {
   switchView('study');
 }
 
+// Ana ekran kısayolları önceki aramayı ve soru türünü sıfırlar (yoksa liste eksik/boş görünür)
+function aramaVeTuruSifirla() {
+  const tur = document.getElementById('study-type-filter'); if (tur) tur.value = 'ALL';
+  const ara = document.getElementById('study-search'); if (ara) ara.value = '';
+}
+
 function openFilteredStudy(statusType) {
+  aramaVeTuruSifirla();
   document.getElementById('study-class-filter').value = 'ALL';
   document.getElementById('study-points-filter').value = 'ALL';
   document.getElementById('study-status-filter').value = statusType;
@@ -401,6 +424,7 @@ function openFilteredStudy(statusType) {
 }
 
 function filterCriticalFivePoints() {
+  aramaVeTuruSifirla();
   document.getElementById('study-class-filter').value = 'ALL';
   document.getElementById('study-status-filter').value = 'ALL';
   document.getElementById('study-points-filter').value = '5';
@@ -409,6 +433,7 @@ function filterCriticalFivePoints() {
 }
 
 function filterTrapQuestions() {
+  aramaVeTuruSifirla();
   document.getElementById('study-class-filter').value = 'ALL';
   document.getElementById('study-points-filter').value = 'ALL';
   document.getElementById('study-status-filter').value = 'trap';
@@ -417,7 +442,8 @@ function filterTrapQuestions() {
 }
 
 function openMistakesAndFavorites() {
-  const wrongCount = DB.filter(q => getLeitnerBox(q.code) === 'wrong').length;
+  const wrongCount = DB.filter(q => !isEskiKod95(q) && getLeitnerBox(q.code) === 'wrong').length;
+  aramaVeTuruSifirla();
   document.getElementById('study-class-filter').value = 'ALL';
   document.getElementById('study-points-filter').value = 'ALL';
   document.getElementById('study-status-filter').value = wrongCount > 0 ? 'wrong' : 'starred';
@@ -494,7 +520,7 @@ function applyStudyFilters() {
 
   document.getElementById('study-filter-count').textContent = `${studyFiltered.length} soru`;
   // Aynı filtreye (ör. Klasse B) dönüldüğünde baştan değil, o filtrede kalınan sorudan devam et.
-  const kayitli = filtreKonumOku()[filtreAnahtari()];
+  const kayitli = aramaVarMi() ? null : filtreKonumOku()[filtreAnahtari()];
   const devamIdx = kayitli ? studyFiltered.findIndex(q => q.code === kayitli.code) : -1;
   studyIndex = devamIdx >= 0 ? devamIdx : 0;
   renderStudySidebarList();
@@ -505,14 +531,20 @@ function applyStudyFilters() {
 const FILTRE_KONUM_KEY = 'FAHRSCHULE_FILTRE_KONUM_V1';
 function filtreAnahtari(sinif, puan, durum, tur, arama) {
   const deger = (id, v) => v != null ? v : (document.getElementById(id)?.value || 'ALL');
-  const ara = arama != null ? arama : (document.getElementById('study-search')?.value || '').trim().toLowerCase();
-  return [deger('study-class-filter', sinif), deger('study-points-filter', puan), deger('study-status-filter', durum), deger('study-type-filter', tur), ara].join('|');
+  // Son alan eskiden arama metniydi; artık hep boş (eski kayıtlarla aynı biçim kalsın diye duruyor).
+  return [deger('study-class-filter', sinif), deger('study-points-filter', puan), deger('study-status-filter', durum), deger('study-type-filter', tur), ''].join('|');
+}
+function aramaVarMi() {
+  return !!(document.getElementById('study-search')?.value || '').trim();
 }
 function filtreKonumOku() {
-  try { const m = JSON.parse(localStorage.getItem(FILTRE_KONUM_KEY) || '{}'); return m && typeof m === 'object' ? m : {}; } catch (_) { return {}; }
+  try { const m = JSON.parse(localStorage.getItem(FILTRE_KONUM_KEY) || '{}'); return m && typeof m === 'object' && !Array.isArray(m) ? m : {}; } catch (_) { return {}; }
 }
 function filtreKonumYaz(m) {
-  try { localStorage.setItem(FILTRE_KONUM_KEY, JSON.stringify(m)); } catch (_) {}
+  // Eski sürümlerin arama metniyle açtığı kayıtları at (anahtarın son alanı dolu olanlar)
+  const temiz = {};
+  for (const [k, v] of Object.entries(m || {})) if (k.endsWith('|') && v && typeof v.code === 'string') temiz[k] = { code: v.code, ts: +v.ts || 0 };
+  try { localStorage.setItem(FILTRE_KONUM_KEY, JSON.stringify(temiz)); } catch (_) {}
 }
 // Sınıf kartlarında "Kaldığın yer: 11 / 559" satırı
 function sinifKonumlariniGoster() {
@@ -990,6 +1022,13 @@ function pressStudyNumpad(key) {
 function checkStudyAnswer() {
   const q = studyFiltered[studyIndex];
   if (!q) return;
+  const bos = q.type === 'number'
+    ? !(studyNumberValues || []).some(v => String(v ?? '').trim())
+    : studySelectedChoices.size === 0;
+  if (bos) {
+    kisaBildirim(q.type === 'number' ? 'Önce cevabı yaz, sonra kontrol et.' : 'Önce en az bir şık seç, sonra kontrol et.');
+    return;
+  }
 
   let isCorrect = false;
   if (q.type === 'number') {
@@ -1043,18 +1082,42 @@ function bugunAnahtar(tarih = new Date()) {
   const y = tarih.getFullYear(), m = String(tarih.getMonth() + 1).padStart(2, '0'), g = String(tarih.getDate()).padStart(2, '0');
   return `${y}-${m}-${g}`;
 }
+function gunlukTemizle(g) {
+  const t = {};
+  for (const [gun, n] of Object.entries(g || {})) {
+    if (/^\d{4}-\d{2}-\d{2}$/.test(gun) && Number.isFinite(+n) && +n > 0) t[gun] = Math.floor(+n);
+  }
+  return t;
+}
+function cihazKimligi() {
+  try {
+    let id = localStorage.getItem('FAHRSCHULE_CIHAZ_ID');
+    if (!id || !/^[a-z0-9]{6,32}$/.test(id)) {
+      id = [...crypto.getRandomValues(new Uint8Array(8))].map(b => b.toString(36).padStart(2, '0')).join('').slice(0, 12);
+      localStorage.setItem('FAHRSCHULE_CIHAZ_ID', id);
+    }
+    return id;
+  } catch (_) { return 'yerel000'; }
+}
+// v31 öncesi sayaç (state.gunluk) dondurulmuş "eski" kısımdır; yeni sayımlar cihaz kovasına yazılır.
+function gunlukDeger(gun) {
+  let n = (state.gunluk || {})[gun] || 0;
+  for (const g of Object.values(state.gunlukCihaz || {})) n += (g && g[gun]) || 0;
+  return n;
+}
 function gunlukSay(adet = 1) {
-  if (!state.gunluk || typeof state.gunluk !== 'object') state.gunluk = {};
+  if (!state.gunlukCihaz || typeof state.gunlukCihaz !== 'object') state.gunlukCihaz = {};
+  const id = cihazKimligi();
   const k = bugunAnahtar();
-  state.gunluk[k] = (state.gunluk[k] || 0) + adet;
+  const g = state.gunlukCihaz[id] || (state.gunlukCihaz[id] = {});
+  g[k] = (g[k] || 0) + adet;
   saveProgress();
 }
 function calismaSerisi() {
-  const g = state.gunluk || {};
   const gun = new Date();
-  if (!g[bugunAnahtar(gun)]) gun.setDate(gun.getDate() - 1); // bugün henüz çalışılmadıysa dünden say
+  if (!gunlukDeger(bugunAnahtar(gun))) gun.setDate(gun.getDate() - 1); // bugün henüz çalışılmadıysa dünden say
   let seri = 0;
-  while (g[bugunAnahtar(gun)] > 0) { seri++; gun.setDate(gun.getDate() - 1); }
+  while (gunlukDeger(bugunAnahtar(gun)) > 0) { seri++; gun.setDate(gun.getDate() - 1); }
   return seri;
 }
 function gunlukHedefSec(n) {
@@ -1077,6 +1140,7 @@ function sonKonumKaydet(q) {
       sira: studyIndex + 1, toplam: studyFiltered.length
     }));
   } catch (_) {}
+  if (aramaVarMi()) return; // aramada gezinmek sınıfta kaldığın yeri değiştirmesin
   const m = filtreKonumOku();
   m[filtreAnahtari()] = { code: q.code, ts: Date.now() };
   filtreKonumYaz(m);
@@ -1121,12 +1185,19 @@ function renderDashUst() {
   if (tarihEl) tarihEl.textContent = simdi.toLocaleDateString('tr-TR', { weekday: 'long', day: 'numeric', month: 'long' });
   if (selamEl) selamEl.textContent = saat < 5 ? 'İyi geceler' : saat < 11 ? 'Günaydın' : saat < 17 ? 'İyi günler' : saat < 22 ? 'İyi akşamlar' : 'İyi geceler';
   const hedef = state.gunlukHedef || 30;
-  const bugun = (state.gunluk || {})[bugunAnahtar()] || 0;
+  const bugun = gunlukDeger(bugunAnahtar());
   const seri = calismaSerisi();
   const yuzde = Math.min(100, Math.round(bugun / hedef * 100));
   const hedefDugmeleri = [10, 20, 30, 50].map(n =>
     `<button class="hedef-btn${n === hedef ? ' secili' : ''}" onclick="gunlukHedefSec(${n})" aria-pressed="${n === hedef}">${n}</button>`).join('');
-  kap.innerHTML = devam + `
+  const yarim = sinavSuruyor() ? null : sinavKaydiOku();
+  const sinavKart = yarim ? `
+    <div class="dash-kart dash-devam dash-sinav-yarim">
+      <span class="dash-etiket">Yarım kalan sınav</span>
+      <strong>${sinavOzetMetni(yarim)}</strong>
+      <button class="btn btn-primary ada" onclick="sinavDevamEt()">Sınava dön<span class="ok" aria-hidden="true">↗</span></button>
+    </div>` : '';
+  kap.innerHTML = sinavKart + devam + `
     <div class="dash-kart dash-hedef">
       <div class="hedef-ust">
         <div class="halka" style="--p:${yuzde}" role="img" aria-label="Bugünkü hedefin yüzde ${yuzde} kadarı tamam"><span>${yuzde}%</span></div>
@@ -1230,12 +1301,14 @@ function selectExamMode(mode) {
 }
 
 function quickStartExam(mode) {
+  if (!yeniSinavOnayi()) { switchView('exam'); return; }
   switchView('exam');
   selectExamMode(mode);
   startSelectedExam(false);
 }
 
-function startSelectedExam(smartWeighted = false) {
+function startSelectedExam(smartWeighted = false, onayli = false) {
+  if (!onayli && !yeniSinavOnayi()) return;
   isMistakesExamActive = false;
   examSmartWeightedActive = smartWeighted;
   if (selectedExamMode === 'COMBO') {
@@ -1248,9 +1321,9 @@ function startSelectedExam(smartWeighted = false) {
 
 function restartCurrentExamType() {
   if (isMistakesExamActive) {
-    startMistakesExam();
+    startMistakesExam(true);
   } else {
-    startSelectedExam(examSmartWeightedActive);
+    startSelectedExam(examSmartWeightedActive, true);
   }
 }
 
@@ -1358,7 +1431,8 @@ function launchExamStage(clsKey, isCombo, smartWeighted = false) {
 }
 
 // Fixed Bug #2: Mistakes Exam sets activeExamClass = 'MISTAKES' and isMistakesExamActive = true
-function startMistakesExam() {
+function startMistakesExam(onayli = false) {
+  if (onayli !== true && !yeniSinavOnayi()) { switchView('exam'); return; }
   const wrongPool = DB.filter(q => getLeitnerBox(q.code) === 'wrong');
   const starredPool = DB.filter(q => state.starred[q.code] && getLeitnerBox(q.code) !== 'wrong');
   // Trap filler questions must match the track the user is studying:
@@ -1418,6 +1492,7 @@ function startExamTimer(seconds) {
     if (examPaused) return;
     examSecondsLeft--;
     updateExamTimerDisplay();
+    if (examSecondsLeft % 5 === 0) sinavKaydet();
     if (examSecondsLeft <= 0) {
       clearInterval(examTimerInterval);
       finalizeExam();
@@ -1518,6 +1593,8 @@ function unlockExamVideoOptions(code) {
 function renderExamQuestion() {
   const q = examQuestions[examIdx];
   if (!q) return;
+  document.documentElement.classList.add('sinav-acik');
+  sinavKaydet();
 
   const answeredTotal = examQuestions.filter(isExamQuestionAnswered).length;
   document.getElementById('exam-progress-sub').textContent =
@@ -1675,6 +1752,7 @@ function setExamNumberAnswer(code, boxIdx, val) {
   cur.numberVals[boxIdx] = val;
   examAnswers.set(code, cur);
   renderExamPills();
+  sinavKaydet();
 }
 
 function pressExamNumpad(code, key) {
@@ -1758,8 +1836,9 @@ function finalizeExam() {
       ? evaluateNumberQuestion(q, ans.numberVals)
       : evaluateChoiceQuestion(q, ans.selected);
 
-    recordQuestionAttempt(q.code, ok);
-    if (isExamQuestionAnswered(q)) gunlukSay();
+    // Boş bırakılan soru sınav puanında yanlış sayılır ama çalışma istatistiğini bozmaz
+    // (hiç görülmemiş soru "Hatalarım"a düşmesin, 3/3 bilinen soru sıfırlanmasın).
+    if (isExamQuestionAnswered(q)) { recordQuestionAttempt(q.code, ok); gunlukSay(); }
     totalPointsPossible += q.points;
 
     if (ok) {
@@ -1773,7 +1852,8 @@ function finalizeExam() {
     }
   });
 
-  const isIHK = !!(EXAM_CONFIG[activeExamClass] && EXAM_CONFIG[activeExamClass].isIHK);
+  const isIHK = !!(EXAM_CONFIG[activeExamClass] && EXAM_CONFIG[activeExamClass].isIHK)
+    || (isMistakesExamActive && examQuestions.length > 0 && examQuestions.filter(isKod95Question).length * 2 > examQuestions.length);
   const ihkPassThreshold = Math.ceil(totalPointsPossible * 0.5);
   const passed = isIHK
     ? (earnedPoints >= ihkPassThreshold)
@@ -1793,6 +1873,7 @@ function finalizeExam() {
   });
   if (state.examHistory.length > 30) state.examHistory.pop();
   saveProgress();
+  sinavKaydiSil();
 
   renderExamResult({
     passed,
@@ -1809,6 +1890,7 @@ function finalizeExam() {
 }
 
 function renderExamResult(res) {
+  document.documentElement.classList.remove('sinav-acik');
   document.getElementById('exam-active-view').style.display = 'none';
   const resView = document.getElementById('exam-result-view');
   resView.style.display = 'block';
@@ -1903,10 +1985,127 @@ function renderExamResult(res) {
   `;
 }
 
+// ── Yarım kalan sınav: kaydet / geri yükle ───────────────────────────────
+// Sınav yalnız bellekte durursa sayfa yenilenince, güncelleme gelince ya da yanlışlıkla
+// başka sınav başlatılınca kaybolur. Her değişiklikte localStorage'a yazılır.
+const SINAV_KAYIT_KEY = 'FAHRSCHULE_SINAV_V1';
+function sinavSuruyor() {
+  return examQuestions.length > 0 && document.getElementById('exam-active-view')?.style.display === 'block';
+}
+function sinavKaydet() {
+  if (!sinavSuruyor()) return;
+  const cevaplar = {};
+  examAnswers.forEach((a, kod) => { cevaplar[kod] = { s: [...(a.selected || [])], n: a.numberVals || [] }; });
+  const sira = {};
+  examOptionOrder.forEach((dizi, kod) => { sira[kod] = dizi.map(a => a.num); });
+  const video = {};
+  examVideoState.forEach((v, kod) => { video[kod] = v; });
+  try {
+    localStorage.setItem(SINAV_KAYIT_KEY, JSON.stringify({
+      v: 1, ts: Date.now(), sinif: activeExamClass, mod: selectedExamMode, hatalar: isMistakesExamActive,
+      akilli: examSmartWeightedActive, kombo: comboCurrentStageIdx,
+      baslik: document.getElementById('exam-stage-title')?.textContent || '',
+      hatalarBaslik: EXAM_CONFIG.MISTAKES.title,
+      kodlar: examQuestions.map(q => q.code), idx: examIdx, cevaplar, bayrak: [...examFlags], video, sira,
+      kalan: examSecondsLeft
+    }));
+  } catch (_) {}
+}
+function sinavKaydiOku() {
+  try {
+    const k = JSON.parse(localStorage.getItem(SINAV_KAYIT_KEY) || 'null');
+    if (!k || k.v !== 1 || !Array.isArray(k.kodlar) || !k.kodlar.length || !(k.kalan > 0)) return null;
+    if (Date.now() - (k.ts || 0) > 7 * 24 * 3600 * 1000) return null; // bir haftadan eski yarım sınav unutulur
+    return k;
+  } catch (_) { return null; }
+}
+function sinavKaydiSil() {
+  try { localStorage.removeItem(SINAV_KAYIT_KEY); } catch (_) {}
+  document.documentElement.classList.remove('sinav-acik');
+}
+// Yeni sınav başlatmadan önce yarım kalan sınavı sessizce silme
+function yeniSinavOnayi() {
+  const bellekte = sinavSuruyor();
+  if (!bellekte && !sinavKaydiOku()) return true;
+  const ok = confirm('Yarım kalan bir sınavın var. Onu silip yeni sınav başlatılsın mı?\n\n"İptal" dersen yarım kalan sınava dönersin.');
+  if (ok) {
+    if (examTimerInterval) clearInterval(examTimerInterval);
+    examQuestions = [];
+    sinavKaydiSil();
+  } else if (!bellekte) {
+    sinavDevamEt();
+  }
+  return ok;
+}
+function sinavDevamEt() {
+  if (sinavSuruyor()) { switchView('exam'); return; }
+  const k = sinavKaydiOku();
+  if (!k) return;
+  const sorular = k.kodlar.map(kod => DB.find(q => q.code === kod)).filter(Boolean);
+  if (!sorular.length) { sinavKaydiSil(); return; }
+  activeExamClass = k.sinif; selectedExamMode = k.mod || selectedExamMode;
+  isMistakesExamActive = !!k.hatalar; examSmartWeightedActive = !!k.akilli; comboCurrentStageIdx = k.kombo | 0;
+  if (k.hatalar && k.hatalarBaslik) EXAM_CONFIG.MISTAKES.title = k.hatalarBaslik;
+  examQuestions = sorular;
+  examIdx = Math.min(Math.max(k.idx | 0, 0), sorular.length - 1);
+  examActiveNumIdx = 0;
+  examAnswers.clear(); examFlags.clear(); examVideoState.clear(); examOptionOrder.clear();
+  sorular.forEach(q => {
+    const c = k.cevaplar && k.cevaplar[q.code];
+    if (c) examAnswers.set(q.code, { selected: new Set(c.s || []), numberVals: Array.isArray(c.n) ? c.n : [''] });
+    if (k.video && k.video[q.code]) examVideoState.set(q.code, k.video[q.code]);
+    if (Array.isArray(q.answers_tr) && q.answers_tr.length) {
+      const nums = k.sira && k.sira[q.code];
+      const dizi = Array.isArray(nums) ? nums.map(n => q.answers_tr.find(a => a.num === n)).filter(Boolean) : [];
+      examOptionOrder.set(q.code, dizi.length === q.answers_tr.length ? dizi : sikSirasi(q));
+    }
+  });
+  (k.bayrak || []).forEach(kod => examFlags.add(kod));
+  examLocalShowDE = false;
+  switchView('exam');
+  document.getElementById('exam-setup-view').style.display = 'none';
+  document.getElementById('exam-result-view').style.display = 'none';
+  document.getElementById('exam-active-view').style.display = 'block';
+  document.getElementById('exam-stage-title').textContent = k.baslik || `${EXAM_CONFIG[k.sinif]?.title || 'Sınav'} — ${sorular.length} Soru`;
+  startExamTimer(k.kalan);
+  renderExamQuestion();
+}
+function sinavKaydiniSilSor() {
+  if (!confirm('Yarım kalan sınav silinsin mi? Bu sınavın cevapları kaybolur.')) return;
+  sinavKaydiSil();
+  sinavDevamKutusu();
+  try { renderDashUst(); } catch (_) {}
+}
+function sinavOzetMetni(k) {
+  const cevaplanan = Object.values(k.cevaplar || {}).filter(c => (c.s && c.s.length) || (c.n || []).some(x => String(x || '').trim())).length;
+  const dk = Math.floor(k.kalan / 60), sn = k.kalan % 60;
+  return `${esc((k.baslik || 'Sınav').replace(/\s+—.*$/, ''))} · ${cevaplanan} / ${k.kodlar.length} cevaplandı · ${dk}:${String(sn).padStart(2, '0')} kaldı`;
+}
+// Sınav kurulum ekranında "yarım kalan sınav" kutusu
+function sinavDevamKutusu() {
+  const kurulum = document.getElementById('exam-setup-view');
+  if (!kurulum) return;
+  let kutu = document.getElementById('sinav-devam-kutu');
+  const k = sinavSuruyor() ? null : sinavKaydiOku();
+  if (!k) { if (kutu) kutu.remove(); return; }
+  if (!kutu) {
+    kutu = document.createElement('div');
+    kutu.id = 'sinav-devam-kutu';
+    kutu.className = 'sinav-devam-kutu';
+    kurulum.prepend(kutu);
+  }
+  kutu.innerHTML = `<strong>⏸️ Yarım kalan sınavın var</strong><span>${sinavOzetMetni(k)}</span>
+    <div class="sinav-devam-dugmeler"><button class="btn btn-primary" type="button" onclick="sinavDevamEt()">Kaldığın yerden devam et</button>
+    <button class="btn btn-outline" type="button" onclick="sinavKaydiniSilSor()">Sil</button></div>`;
+}
+window.addEventListener('pagehide', () => { try { sinavKaydet(); } catch (_) {} });
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') { try { sinavKaydet(); } catch (_) {} } });
+
 function returnToExamSetup() {
   document.getElementById('exam-result-view').style.display = 'none';
   document.getElementById('exam-active-view').style.display = 'none';
   document.getElementById('exam-setup-view').style.display = 'block';
+  sinavDevamKutusu();
 }
 
 // ── Cheatsheet Interactive Formula Calculator ────────────────────────────
@@ -1975,7 +2174,7 @@ function renderStatsView() {
 
   let html = '<div class="class-cards-grid" style="grid-template-columns:repeat(auto-fit,minmax(240px,1fr));">';
   categories.forEach(cat => {
-    const pool = DB.filter(q => q.classes.includes(cat));
+    const pool = DB.filter(q => q.classes.includes(cat) && !isEskiKod95(q));
     const learned = pool.filter(q => getLeitnerBox(q.code) === 'learned').length;
     const learning = pool.filter(q => getLeitnerBox(q.code) === 'learning').length;
     const wrong = pool.filter(q => getLeitnerBox(q.code) === 'wrong').length;
@@ -2193,8 +2392,8 @@ function handleKeyboardShortcuts(e) {
   if (e.key === 'Enter' && (tag === 'BUTTON' || tag === 'A')) return;
 
   if (document.getElementById('view-study').classList.contains('active')) {
-    if (e.key === 'ArrowRight') selectStudyQuestion(studyIndex + 1);
-    else if (e.key === 'ArrowLeft') selectStudyQuestion(studyIndex - 1);
+    if (e.key === 'ArrowRight') { if (studyIndex < studyFiltered.length - 1) selectStudyQuestion(studyIndex + 1); }
+    else if (e.key === 'ArrowLeft') { if (studyIndex > 0) selectStudyQuestion(studyIndex - 1); }
     else if (e.key === 'Enter') {
       e.preventDefault();
       if (!studyRevealed) checkStudyAnswer();
@@ -2329,7 +2528,7 @@ function senkronPaketi() {
     v: 1,
     durum: {
       qStats: state.qStats, starred: state.starred, examHistory: state.examHistory,
-      alwaysShowDE: state.alwaysShowDE, gunluk: state.gunluk || {}, gunlukHedef: state.gunlukHedef
+      alwaysShowDE: state.alwaysShowDE, gunluk: state.gunluk || {}, gunlukCihaz: state.gunlukCihaz || {}, gunlukHedef: state.gunlukHedef
     },
     sonKonum: sonKonumOku(),
     filtreKonum: filtreKonumOku()
@@ -2356,7 +2555,7 @@ function senkronSonKonumAl(uzak) {
 // Yerelde gönderilmemiş değişiklik yoksa: uzaktaki hali olduğu gibi al (silmeler de gelsin).
 function senkronUygula(uzak) {
   if (!uzak || !uzak.durum) return;
-  state.qStats = {}; state.starred = {}; state.examHistory = []; state.gunluk = {};
+  state.qStats = {}; state.starred = {}; state.examHistory = []; state.gunluk = {}; state.gunlukCihaz = {};
   sanitizeLoadedState(uzak.durum);
   senkronSonKonumAl(uzak);
 }
@@ -2384,10 +2583,19 @@ function senkronBirlestir(uzak) {
     const tum = state.examHistory.concat(u.examHistory.filter(h => h && !var_.has(anahtar(h))));
     tum.sort((a, b) => senkronSinavZamani(b) - senkronSinavZamani(a));
     state.examHistory = tum.slice(0, 30);
+    sanitizeLoadedState({ examHistory: state.examHistory }); // uzaktan gelen kayıtları da temizle
+  }
+  if (u.gunlukCihaz && typeof u.gunlukCihaz === 'object' && !Array.isArray(u.gunlukCihaz)) {
+    if (!state.gunlukCihaz || typeof state.gunlukCihaz !== 'object') state.gunlukCihaz = {};
+    for (const [id, g] of Object.entries(u.gunlukCihaz)) {
+      if (!/^[a-z0-9]{6,32}$/.test(id) || !g || typeof g !== 'object') continue;
+      const yerel = state.gunlukCihaz[id] || (state.gunlukCihaz[id] = {});
+      for (const [gun, n] of Object.entries(gunlukTemizle(g))) if (n > (yerel[gun] || 0)) yerel[gun] = n;
+    }
   }
   if (u.gunluk && typeof u.gunluk === 'object') {
     if (!state.gunluk || typeof state.gunluk !== 'object') state.gunluk = {};
-    for (const [gun, n] of Object.entries(u.gunluk)) {
+    for (const [gun, n] of Object.entries(gunlukTemizle(u.gunluk))) {
       if (typeof n === 'number' && n > (state.gunluk[gun] || 0)) state.gunluk[gun] = n;
     }
   }
