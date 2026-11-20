@@ -528,6 +528,7 @@ function applyStudyFilters() {
     if (statusVal === 'learned' && box !== 'learned') return false;
     if (statusVal === 'starred' && !state.starred[q.code]) return false;
     if (statusVal === 'due' && !tekrarZamaniGeldi(q.code)) return false;
+    if (statusVal === 'ozel' && ozelListe && !ozelListe.kodlar.has(q.code)) return false;
 
     if (searchVal) {
       const hay = `${q.code} ${q.question_tr} ${q.question_de}`.toLowerCase();
@@ -2053,6 +2054,7 @@ function renderExamResult(res) {
       </div>
     </div>
 
+    ${konuDokumuHtml(res)}
     <div class="card">
       <h3 style="font-size:18px;font-weight:800;margin-bottom:12px;">
         ${res.wrongDetails.length ? `❌ Yanlış Yaptığın Sorular (${res.wrongDetails.length} Adet — Türkçe Açıklamalı)` : '🎉 Hiç yanlışın yok, kusursuz performans!'}
@@ -2076,6 +2078,159 @@ function renderExamResult(res) {
       </div>
     </div>
   `;
+}
+
+// ── Sınav sonrası konu dökümü (v33) ─────────────────────────────────────
+// Her soru resmi katalogdaki alt bölümüne (chapter_de) göre gruplanır; Kod 95'te bölüm (KB1–3).
+const KONU_TR = {
+  'grundformen des verkehrsverhaltens': 'Trafikte temel davranış',
+  'verhalten gegenueber fussgaengern': 'Yayalara karşı davranış',
+  'fahrbahn und witterungsverhaeltnisse': 'Yol ve hava koşulları',
+  'dunkelheit und schlechte sicht': 'Karanlık ve kötü görüş',
+  'geschwindigkeit': 'Hız',
+  'ueberholen': 'Sollama',
+  'besondere verkehrssituationen': 'Özel trafik durumları',
+  'alkohol drogen medikamente': 'Alkol, uyuşturucu ve ilaç',
+  'gesundheitsrisiken': 'Sağlık riskleri',
+  'grundregeln ueber das verhalten im strassenverkehr': 'Trafikte temel kurallar',
+  'strassenbenutzung': 'Yolun kullanımı',
+  'abstand': 'Takip mesafesi',
+  'vorbeifahren': 'Engelin yanından geçme',
+  'benutzung von fahrstreifen durch kraftfahrzeuge': 'Şerit kullanımı',
+  'abbiegen wenden und rueckwaertsfahren': 'Dönüş, geri dönüş ve geri geri gitme',
+  'einfahren und anfahren': 'Yola girme ve kalkış',
+  'besondere verkehrslagen': 'Özel trafik hâlleri',
+  'halten und parken': 'Durma ve park etme',
+  'warnzeichen': 'Uyarı işaretleri (korna, selektör)',
+  'beleuchtung': 'Aydınlatma',
+  'bahnuebergaenge': 'Hemzemin geçitler',
+  'oeffentliche verkehrsmittel und schulbusse': 'Toplu taşıma ve okul servisleri',
+  'ladung': 'Yük',
+  'sonstige pflichten des fahrzeugfuehrers': 'Sürücünün diğer yükümlülükleri',
+  'verhalten an fussgaengerueberwegen und gegenueber fussgaengern': 'Yaya geçitleri ve yayalar',
+  'unfall': 'Kaza',
+  'zeichen und weisungen der polizeibeamten': 'Polisin işaret ve talimatları',
+  'wechsellichtzeichen und dauerlichtzeichen': 'Trafik ışıkları',
+  'blaues blinklicht und gelbes blinklicht': 'Mavi ve sarı döner lamba',
+  'vorfahrt vorrang': 'Geçiş önceliği',
+  'gefahrzeichen': 'Tehlike levhaları',
+  'vorschriftzeichen': 'Kural levhaları (yasak / mecburiyet)',
+  'richtzeichen': 'Bilgi levhaları',
+  'verkehrseinrichtungen': 'Trafik düzenekleri',
+  'umweltschutz': 'Çevre koruma',
+  'eignung und befaehigung von kraftfahrern': 'Sürücü yeterliliği',
+  'autobahn': 'Otoyol',
+  'ermuedung ablenkung': 'Yorgunluk ve dikkat dağınıklığı',
+  'affektiv emotionales verhalten im strassenverkehr': 'Trafikte duygusal davranış',
+  'einrichtungen zur ueberwachung der parkzeit': 'Park süresi denetimi (park saati, disk)',
+  'sorgfaltspflichten': 'Özen yükümlülükleri',
+  'liegenbleiben und abschleppen von fahrzeugen': 'Arıza ve araç çekme',
+  'autobahnen und kraftfahrstrassen': 'Otoyollar ve motorlu taşıt yolları',
+  'personenbefoerderung': 'Yolcu taşıma',
+  'uebermaessige strassenbenutzung': 'Özel izinli yol kullanımı',
+  'sonntagsfahrverbot': 'Pazar günü sürüş yasağı',
+  'verkehrshindernisse': 'Trafik engelleri',
+  'fahrzeuge mit vorfahrt': 'Geçiş üstünlüğü olan araçlar',
+  'untersuchung der fahrzeuge': 'Araç muayenesi',
+  'zulassung zum strassenverkehr fahrzeugpapiere fahrerlaubnis': 'Tescil, araç belgeleri ve ehliyet',
+  'anhaengerbetrieb': 'Römorklu sürüş',
+  'lenk und ruhezeiten': 'Sürüş ve dinlenme süreleri',
+  'eg kontrollgeraet': 'Takograf',
+  'abmessungen gewichte und geschwindigkeitsbegrenzer': 'Ölçüler, ağırlıklar ve hız sınırlayıcı',
+  'lesen einer strassenkarte und streckenplanung': 'Harita okuma ve rota planlama',
+  'fahrbetrieb fahrphysik fahrtechnik': 'Sürüş tekniği ve fizik',
+  'maengelerkennung lokalisierung von stoerungen': 'Arıza tespiti',
+  'verbrennungsmaschine fluessigkeiten kraftstoffsystem elektrische anlage zuendung kraftuebertragung': 'Motor, sıvılar, yakıt ve elektrik sistemi',
+  'schmier und frostschutzmittel': 'Yağlar ve antifriz',
+  'verwendung und wartung von reifen': 'Lastik kullanımı ve bakımı',
+  'bremsanlagen und geschwindigkeitsregler': 'Fren sistemleri ve hız sabitleyici',
+  'anhaengekupplungssysteme': 'Römork bağlantı sistemleri',
+  'wartung von kraftfahrzeugen und rechtzeitige veranlassung von reparaturen': 'Araç bakımı ve zamanında onarım',
+  'entgegennahme transport und ablieferung der gueter': 'Yükün teslim alınması, taşınması ve teslimi'
+};
+function konuNormal(metin) {
+  return String(metin || '').toLowerCase()
+    .replace(/ä/g, 'ae').replace(/ö/g, 'oe').replace(/ü/g, 'ue').replace(/ß/g, 'ss')
+    .replace(/[^a-z ]+/g, ' ').replace(/\s+/g, ' ').trim();
+}
+function konuAnahtari(q) {
+  if (isKod95Question(q)) return 'ihk:' + (q.theme_tr || 'Kod 95');
+  const n = konuNormal(q.chapter_de);
+  return n ? 'k:' + n : 't:' + (q.theme_tr || 'Diğer');
+}
+function konuAdi(anahtar, q) {
+  if (anahtar.startsWith('k:')) return KONU_TR[anahtar.slice(2)] || (q && q.chapter_de) || anahtar.slice(2);
+  return anahtar.slice(anahtar.indexOf(':') + 1);
+}
+let sonSinavKonular = [];   // son sınavın konu dökümü (düğmeler dizinle çağırır)
+let sonSinavYanlislar = []; // son sınavın yanlış soru kodları
+let sonSinavSiniflar = [];  // son sınavdaki soruların sınıfları
+function konuDokumuHesapla(yanlisKodlar) {
+  const yanlis = new Set(yanlisKodlar);
+  const gruplar = new Map();
+  examQuestions.forEach(q => {
+    const k = konuAnahtari(q);
+    const g = gruplar.get(k) || { anahtar: k, ad: konuAdi(k, q), toplam: 0, yanlis: 0, kayipPuan: 0, toplamPuan: 0 };
+    g.toplam++; g.toplamPuan += q.points;
+    if (yanlis.has(q.code)) { g.yanlis++; g.kayipPuan += q.points; }
+    gruplar.set(k, g);
+  });
+  return [...gruplar.values()].sort((a, b) => b.kayipPuan - a.kayipPuan || b.yanlis - a.yanlis || b.toplam - a.toplam);
+}
+function konuSatiriHtml(g, i) {
+  const dogru = g.toplam - g.yanlis;
+  const oran = Math.round(dogru / g.toplam * 100);
+  return `<div class="konu-satir ${g.yanlis ? 'zayif' : ''}">
+      <div class="konu-bilgi"><strong>${esc(g.ad)}</strong>
+        <span>${dogru} / ${g.toplam} doğru${g.kayipPuan ? ` · −${g.kayipPuan} puan` : ''}</span></div>
+      <div class="konu-cubuk" role="img" aria-label="Yüzde ${oran} doğru"><i style="width:${oran}%"></i></div>
+      <button class="btn btn-outline konu-calis" type="button" onclick="konuCalis(${i})">Konuyu çalış</button>
+    </div>`;
+}
+function konuDokumuHtml(res) {
+  sonSinavYanlislar = res.wrongDetails.map(w => w.q.code);
+  sonSinavSiniflar = [...new Set(examQuestions.flatMap(q => q.classes || []))];
+  sonSinavKonular = konuDokumuHesapla(sonSinavYanlislar);
+  const zayif = sonSinavKonular.filter(g => g.yanlis > 0);
+  const iyi = sonSinavKonular.filter(g => g.yanlis === 0);
+  return `<div class="card konu-dokum">
+      <h3>📊 Konu bazında sonuç</h3>
+      <p class="konu-aciklama">${zayif.length
+        ? `En çok puan kaybettiğin konu en üstte. "Konuyu çalış" o konunun bütün sorularını açar.`
+        : 'Bu sınavda hiçbir konuda yanlışın yok.'}</p>
+      ${zayif.length ? `<div class="konu-baslik">⚠️ Zayıf konuların (${zayif.length})</div>${zayif.map(g => konuSatiriHtml(g, sonSinavKonular.indexOf(g))).join('')}` : ''}
+      ${iyi.length ? `<details class="konu-iyi"><summary>✅ Hatasız konular (${iyi.length})</summary>${iyi.map(g => konuSatiriHtml(g, sonSinavKonular.indexOf(g))).join('')}</details>` : ''}
+      ${sonSinavYanlislar.length ? `<button class="btn btn-primary konu-yanlis-dugme" type="button" onclick="sinavYanlislariniCalis()">❌ Bu sınavın ${sonSinavYanlislar.length} yanlışını çalış</button>` : ''}
+    </div>`;
+}
+// Çalış ekranında geçici özel liste (son sınavın yanlışları ya da bir konu)
+let ozelListe = null; // { ad, kodlar: Set }
+function ozelListeAc(ad, kodlar) {
+  ozelListe = { ad, kodlar: new Set(kodlar) };
+  const sec = document.getElementById('study-status-filter');
+  if (sec) {
+    let opt = sec.querySelector('option[value="ozel"]');
+    if (!opt) { opt = document.createElement('option'); opt.value = 'ozel'; sec.appendChild(opt); }
+    opt.textContent = `📌 ${ad} (${kodlar.length})`;
+  }
+  aramaVeTuruSifirla();
+  document.getElementById('study-class-filter').value = 'ALL';
+  document.getElementById('study-points-filter').value = 'ALL';
+  document.getElementById('study-status-filter').value = 'ozel';
+  applyStudyFilters();
+  selectStudyQuestion(0);
+  switchView('study');
+}
+function sinavYanlislariniCalis() {
+  if (!sonSinavYanlislar.length) return;
+  ozelListeAc('Son sınavın yanlışları', sonSinavYanlislar);
+}
+function konuCalis(i) {
+  const g = sonSinavKonular[i];
+  if (!g) return;
+  const siniflar = new Set(sonSinavSiniflar);
+  const kodlar = DB.filter(q => !isEskiKod95(q) && konuAnahtari(q) === g.anahtar && (q.classes || []).some(c => siniflar.has(c))).map(q => q.code);
+  ozelListeAc(g.ad, kodlar);
 }
 
 // ── Yarım kalan sınav: kaydet / geri yükle ───────────────────────────────
