@@ -1,4 +1,4 @@
-const CACHE_NAME = 'fahrschule-gold-v34';
+const CACHE_NAME = 'fahrschule-gold-v35';
 // Uygulama kabuğu. Şifreli yayında questions_full.js yoktur (yerine sifreli/sorular.bin);
 // bu yüzden dosyalar tek tek ve hata yutularak önbelleğe alınır.
 const CORE_ASSETS = [
